@@ -494,9 +494,16 @@ def generate(dial):
             (0.5 + ratio(outer), half_width),
             (0.5 + ratio(outer), half_width),
         )
-        per_path = math.ceil(len(card.ticks) / card.paths)
-        for i in range(0, len(card.ticks), per_path):
-            out += card_tick_path(card.ticks[i : i + per_path], card_box)
+        # a path has one fill: the ticks of the most frequent colour are split into card.paths
+        # paths, the few of any other colour (the cardinal ticks) get one path each colour
+        colors = list(dict.fromkeys(t.color for t in card.ticks))
+        colors.sort(key=lambda c: -sum(t.color == c for t in card.ticks))
+        main = [t for t in card.ticks if t.color == colors[0]]
+        per_path = math.ceil(len(main) / card.paths)
+        for i in range(0, len(main), per_path):
+            out += card_tick_path(main[i : i + per_path], card_box)
+        for color in colors[1:]:
+            out += card_tick_path([t for t in card.ticks if t.color == color], card_box)
         for angle, text in card.labels:
             out += card_label(angle, text, card.label_radius)
         # static shapes must stay outside the box of the turning card
@@ -504,7 +511,8 @@ def generate(dial):
             if not shape.over_card and overlap(box(shape_extremes(shape)), box(card_box)):
                 sys.exit(f"{dial.file}: {shape.name} overlaps the box of the card")
         card_report = (
-            f", card: {card.paths} tick paths of {per_path} ticks, {len(card.labels)} labels"
+            f", card: {card.paths} tick paths of {per_path} ticks"
+            + f" and {len(colors) - 1} of other colours, {len(card.labels)} labels"
         )
     for shape in dial.shapes:
         out += shape_path(shape)
@@ -670,13 +678,14 @@ def heading():
             0.85 if a % 10 == 0 else 0.92,
             1.0,
             MARKING_WIDTH / 2 if a % 10 == 0 else MARKING_WIDTH / 4,
-            "Theme.marking",
+            "Theme.cardinal" if a % 90 == 0 else "Theme.marking",
         )
         for a in range(0, 360, 5)
     ]
     names = {0: "N", 90: "E", 180: "S", 270: "W"}
     labels = [(a, names.get(a, str(a // 10))) for a in range(0, 360, 30)]
     # each card path rebuilds its elements every frame: 8 paths of 9 ticks need about 1.3 KB
+    # (the 4 cardinal ticks are in a ninth path of their own colour)
     # each (one path 10 KB, 4 paths 2.5 KB weren't found any more in the fragmented heap of the
     # host check), and a band of 9 ticks stays within the 512 reserved rasterizer cells
     card = Card(ticks, 8, labels, 0.68)
