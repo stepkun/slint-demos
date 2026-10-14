@@ -714,18 +714,20 @@ def heading():
     # host check), and a band of 9 ticks stays within the 512 reserved rasterizer cells
     card = Card(ticks, 8, labels, 0.68)
 
-    # heading mark at the top and marks at 3, 6 and 9 o'clock, in the ring outside the card
+    # heading mark at the top and marks at 3, 6 and 9 o'clock, red like the aircraft symbol,
+    # over the outer ends of the card ticks (there is no bezel ring), so they are redrawn with
+    # the turning card like the aircraft symbol
     def ring_mark(angle):
-        # a narrow quadrilateral in the ring, pointing to the center, from 1.05 to 1.2
+        # a narrow quadrilateral pointing to the center, from 0.86 to 1.01 of the inner radius
         a = math.radians(angle)
         s, c = math.sin(a), math.cos(a)
         w = MARKING_WIDTH / 2 / INNER_RADIUS
         return [
             (r * s + side * w * c, -r * c + side * w * s)
-            for r, side in ((1.05, -1), (1.2, -1), (1.2, 1), (1.05, 1))
+            for r, side in ((0.86, -1), (1.01, -1), (1.01, 1), (0.86, 1))
         ]
 
-    lubber = [(0.0, -1.05), (-0.09, -1.22), (0.09, -1.22)]
+    lubber = [(0.0, -0.86), (-0.09, -1.01), (0.09, -1.01)]
     # aircraft seen from above, nose up: fuselage, wings, tail
     aircraft = [
         [(-0.03, -0.38), (0.03, -0.38), (0.03, 0.30), (-0.03, 0.30)],
@@ -733,15 +735,16 @@ def heading():
         [(-0.14, 0.24), (0.14, 0.24), (0.14, 0.30), (-0.14, 0.30)],
     ]
     shapes = [
-        Shape("heading mark at the top, in the ring", "Theme.vehicle", [lubber]),
-        # one shape each, a common box would span the card
+        Shape("heading mark at the top, over the card", "Theme.vehicle", [lubber], over_card=True),
+        # one shape each, a common box would be redrawn as a whole
         *(
-            Shape(f"mark at {a}deg, in the ring", "Theme.marking", [ring_mark(a)])
+            Shape(f"mark at {a}deg, over the card", "Theme.vehicle", [ring_mark(a)], over_card=True)
             for a in (90, 180, 270)
         ),
         Shape("aircraft symbol, over the card", "Theme.vehicle", aircraft, over_card=True),
     ]
-    return Dial("ui/heading.slint", 0, [], card=card, shapes=shapes)
+    # no bezel ring: the card reaches almost to the edge, like the 0.49 in ui/heading.slint
+    return Dial("ui/heading.slint", 0, [], card=card, shapes=shapes, ring_ratio=0.01)
 
 
 def main():
