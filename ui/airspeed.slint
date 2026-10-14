@@ -26,7 +26,8 @@ export component Airspeed inherits Rectangle {
     // The numbers are on the dial inside the long ticks (0.85 of the inner radius), like on a
     // real indicator. The needle passes over them, then only the small numbers are redrawn
     // (pre-rendered glyphs), no paths. The unit sits at the top edge, in the gap of the scale.
-    property <float> label_half_width: size_float * 0.046;
+    // wide enough for three digits at Theme.font_size, the device clips text to its box
+    property <float> label_half_width: size_float * 0.06;
     property <float> label_half_height: size_float * 0.03;
     property <float> label_radius: center - label_half_height - 1;
     property <float> number_radius: inner_radius * 0.70;

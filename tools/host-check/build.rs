@@ -4,10 +4,10 @@
 
 fn main() {
     // The font sizes of the instruments scale with their size, so they are no literals the
-    // compiler could collect: embed the glyphs of Theme.font_size and Theme.large_font_size
-    // (keep in sync with ui/theme.slint).
+    // compiler could collect: embed the glyphs of Theme.menu_font_size, Theme.font_size and
+    // Theme.large_font_size (keep in sync with ui/theme.slint).
     // SAFETY: the build script is single-threaded, nothing reads the environment concurrently.
-    unsafe { std::env::set_var("SLINT_FONT_SIZES", "12,14") };
+    unsafe { std::env::set_var("SLINT_FONT_SIZES", "12,14,16") };
 
     // build the slint artefacts from the shared ui, with resources embedded for the software
     // renderer, like the firmware does

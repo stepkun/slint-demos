@@ -104,7 +104,7 @@ divide instruction. The Slint software renderer (1.18.1) has no rotation or scal
   boxes never overlap a moving box (checked by `tools/dial-paths.py` for every hand angle).
 - **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts. The
   glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of the firmware and of
-  `tools/host-check`), `Theme.font_size` and `Theme.large_font_size`; a size in between falls
+  `tools/host-check`), the font sizes of `Theme` (12, 14 and 16 px); a size in between falls
   back to the next smaller one. Keep them in sync, and round scaled font sizes to whole pixels.
 - Use the colours, widths and font sizes from `Theme`, don't hard-code them. Widths and font
   sizes are those at `Theme.reference_size` (the display); the instruments multiply them by
