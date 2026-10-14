@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "slint": {
+      "source": {
+        "source": "github",
+        "repo": "slint-ui/ai-plugins"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "slint@slint": true
+  }
+}
