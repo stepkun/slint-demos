@@ -1,0 +1,8 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[build]
+# 32-bit like the RP2040, so the sizes of Slint's data structures and of the TLSF heap blocks are
+# the same as on the device, needs: rustup target add i686-unknown-linux-gnu and a 32-bit C
+# library (on Debian/Ubuntu: apt install gcc-multilib)
+target = "i686-unknown-linux-gnu"

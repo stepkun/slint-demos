@@ -5,7 +5,6 @@
 
 use super::PhysicalRect;
 use super::draw_functions::{PremultipliedRgbaColor, TargetPixel};
-use alloc::vec;
 use alloc::vec::Vec;
 use zeno::{Cap, Fill, Join, Mask, Stroke, Style};
 
@@ -57,22 +56,51 @@ pub fn convert_path_data_to_zeno(
     commands
 }
 
+/// patched: largest mask of a band, a path is rasterized in bands of at most this size
+/// (kept permanently, see `PathBuffers`, so it is smaller than a mask for a whole band would be)
+const MAX_MASK_BYTES: usize = 8 * 1024;
+/// patched: rasterizer cells reserved up front (16 bytes each). Bands of 8 KB of the instruments
+/// in ui/ need at most 256 cells (measured with tools/host-check), this leaves room for more.
+const RESERVED_CELLS: usize = 512;
+
+/// patched: buffers for rendering paths, allocated once when the renderer is created and then
+/// kept. Allocating them for every path (the mask of a band, and 16 KB of rasterizer cells in
+/// zeno) needs large free blocks every frame. On an MCU the heap becomes fragmented when
+/// components are created and destroyed, and such an allocation then fails although enough
+/// memory is free in total. Allocated first, they stay at the start of the heap.
+pub struct PathBuffers {
+    mask: Vec<u8>,
+    scratch: zeno::Scratch,
+    // outline of a stroke, it grows to the largest stroked path and is then kept
+    outline: Vec<Command>,
+}
+
+impl Default for PathBuffers {
+    fn default() -> Self {
+        Self {
+            mask: alloc::vec![0; MAX_MASK_BYTES],
+            scratch: zeno::Scratch::with_capacity(RESERVED_CELLS),
+            outline: Vec::new(),
+        }
+    }
+}
+
 /// Common rendering logic for both filled and stroked paths
 ///
 /// patched: only the part of the path inside `clip_rects` (the non-overlapping parts of the dirty
 /// region inside the clip) is rasterized, in horizontal bands with a mask of at most
 /// `MAX_MASK_BYTES`. This bounds the memory on MCUs, avoids rasterizing pixels that are not
 /// redrawn, and pixels outside the redrawn region are not blended again.
+/// patched: the mask and the rasterizer cells come from `buffers`, kept by the renderer.
 fn render_path_with_style<T: TargetPixel>(
     commands: &[Command],
     path_geometry: &PhysicalRect,
     clip_rects: &[PhysicalRect],
     color: PremultipliedRgbaColor,
     style: zeno::Style,
+    buffers: &mut PathBuffers,
     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
 ) {
-    const MAX_MASK_BYTES: usize = 24 * 1024;
-
     let path_x = path_geometry.origin.x as i32;
     let path_y = path_geometry.origin.y as i32;
     let path_width = path_geometry.size.width as i32;
@@ -99,10 +127,11 @@ fn render_path_with_style<T: TargetPixel>(
 
     // patched: a stroke is converted to its outline once, so the bands only rasterize the
     // filled outline instead of stroking the path again for every band
-    let mut outline = Vec::new();
+    let PathBuffers { mask: mask_buffer, scratch, outline } = buffers;
     let (commands, style) = match style {
         Style::Stroke(_) => {
-            let fill = zeno::apply(commands, style, None, &mut outline);
+            outline.clear();
+            let fill = zeno::apply(commands, style, None, outline);
             (outline.as_slice(), Style::Fill(fill))
         }
         _ => (commands, style),
@@ -110,7 +139,6 @@ fn render_path_with_style<T: TargetPixel>(
 
     let width = (x1 - x0) as usize;
     let band_height = (MAX_MASK_BYTES / width).clamp(1, (y1 - y0) as usize);
-    let mut mask_buffer = vec![0u8; width * band_height];
 
     let mut band_y = y0;
     while band_y < y1 {
@@ -119,7 +147,7 @@ fn render_path_with_style<T: TargetPixel>(
         band.fill(0);
 
         // Render the band of the path into the mask, the offset moves it to the band origin
-        Mask::new(commands)
+        Mask::with_scratch(commands, scratch)
             .size(width as u32, height as u32)
             .offset(zeno::Vector::new((path_x - x0) as f32, (path_y - band_y) as f32))
             .style(style)
@@ -175,12 +203,14 @@ fn render_path_with_style<T: TargetPixel>(
 /// * `path_geometry` - The full bounding box of the path in screen coordinates
 /// * `clip_geometry` - The clipped region where the path should be rendered (intersection of path and clip)
 /// * `color` - The color to render the path
+/// * `buffers` - patched: the path buffers kept by the renderer
 /// * `buffer` - The target pixel buffer
 pub fn render_filled_path<T: TargetPixel>(
     commands: &[Command],
     path_geometry: &PhysicalRect,
     clip_rects: &[PhysicalRect],
     color: PremultipliedRgbaColor,
+    buffers: &mut PathBuffers,
     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
 ) {
     render_path_with_style(
@@ -189,6 +219,7 @@ pub fn render_filled_path<T: TargetPixel>(
         clip_rects,
         color,
         zeno::Style::Fill(Fill::NonZero),
+        buffers,
         buffer,
     );
 }
@@ -210,6 +241,7 @@ pub fn render_stroked_path<T: TargetPixel>(
     stroke_line_cap: i_slint_core::items::LineCap,
     stroke_line_join: i_slint_core::items::LineJoin,
     stroke_miter_limit: f32,
+    buffers: &mut PathBuffers,
     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
 ) {
     let mut stroke = Stroke::new(stroke_width);
@@ -226,5 +258,5 @@ pub fn render_stroked_path<T: TargetPixel>(
         })
         .miter_limit(stroke_miter_limit);
     let style = Style::Stroke(stroke);
-    render_path_with_style(commands, path_geometry, clip_rects, color, style, buffer);
+    render_path_with_style(commands, path_geometry, clip_rects, color, style, buffers, buffer);
 }

@@ -220,6 +220,11 @@ How it got there, measured on the device with temporary timing points in the ren
 | `sin`/`cos` calculated once instead of inlined into every coordinate | ~60 ms | 14.5 |
 | Tight boxes for the static tick paths, larger mask bands | ~58 ms | 14.8 |
 
+The mask bands are now at most 8 KB again instead of 24 KB, and their buffers are kept instead of
+being allocated for every path, see [Heap fragmentation](#heap-fragmentation). The larger bands
+had saved about 2 ms. The render time with the 8 KB bands has not been measured on the device
+yet.
+
 ## Memory and Slint limitations
 
 The RP2040 has 264 KB of RAM, used like this:
@@ -227,8 +232,26 @@ The RP2040 has 264 KB of RAM, used like this:
 | Part | Size |
 |---|---|
 | Frame buffer (240 × 320 × 2 bytes) | 150 KB |
-| Heap (`HEAP_SIZE`, TLSF allocator) | 92 KB, of which about 67 KB are used at peak |
+| Heap (`HEAP_SIZE`, TLSF allocator) | 92 KB, see below |
 | Stack and other statics | about 17 KB |
+
+The heap peak in the status line counts the requested bytes. The TLSF allocator needs about 20 %
+more for its block headers and alignment. `tools/host-check` runs the same allocator in a 92 KB
+block on the host (32-bit, like the RP2040): with all three instruments the peak is about 57 KB
+requested and 76 KB including the overhead.
+
+### Heap fragmentation
+
+The airspeed indicator crashed the firmware when the demo switched from it back to the attitude
+indicator: out of heap, although only about 42 KB were in use. Creating and destroying the
+instruments leaves small blocks spread over the heap. The renderer allocated a new mask of up
+to 24 KB for every path, and zeno 16 KB of rasterizer cells, several times per frame. Once the
+heap was fragmented, no free block was large enough any more.
+
+The patched renderer therefore allocates these buffers once, when the window is created, and
+keeps them: an 8 KB mask and 512 rasterizer cells (8 KB). No allocation is larger than 8 KB
+after that. Keep it that way: avoid large blocks that are allocated again and again. The host
+check fails if an allocation is larger than 8 KB, or if the TLSF heap runs out.
 
 Slint's software renderer (1.18.1) has some limitations that shape this firmware:
 
@@ -244,7 +267,7 @@ Slint's software renderer (1.18.1) has some limitations that shape this firmware
 These come from measuring on the device. They matter for everything that is redrawn often:
 
 - **Keep `Path` boxes small.** Each path is rasterized into a mask of one byte per pixel of its
-  box (in bands of at most 24 KB), and a path is redrawn whenever its box overlaps the redrawn
+  box (in bands of at most 8 KB), and a path is redrawn whenever its box overlaps the redrawn
   region. Give static paths tight boxes that don't overlap moving parts. Use `viewbox-x` and
   `viewbox-y` to keep the coordinates the same.
 - **Prefer `Rectangle` with `border-radius`** over a `Path` for circles and rings.
@@ -270,15 +293,18 @@ Each change is marked with a `patched:` comment in the source.
 |---|---|---|
 | `i-slint-core` 1.18.1 | `no_std` with `software-renderer-path` doesn't compile (`f32::rem_euclid`) | Slint 1.19 is released (already fixed there) |
 | `i-slint-renderer-software` 1.18.1 | See below | The changes are in a Slint release (worth offering upstream) |
-| `zeno` 0.3.3 | Its rasterizer keeps about 18 KB on the stack, which overflows into the frame buffer. The patch uses heap storage with 1024 reserved cells. | Never, unless zeno or Slint change this |
+| `zeno` 0.3.3 | Its rasterizer keeps about 18 KB on the stack, which overflows into the frame buffer. The patch uses heap storage with 1024 reserved cells, and adds `Scratch::with_capacity`, so the renderer can keep the cells. | Never, unless zeno or Slint change this |
 
 Changes in the software renderer (`lib.rs` and `path.rs`):
 
 - **Partial redraw fix:** paths are only blended into the non-overlapping parts of the redrawn
   region, like all other elements. Without it, partial redraws make path edges build up.
 - **Path masks in bands:** only the part of a path inside the redrawn region is rasterized, in
-  horizontal bands of at most 24 KB (`MAX_MASK_BYTES`). The original allocated one mask for the
+  horizontal bands of at most 8 KB (`MAX_MASK_BYTES`). The original allocated one mask for the
   whole path box. This bounds memory and skips work outside the redrawn region.
+- **Path buffers kept:** the mask, the rasterizer cells (`zeno::Scratch`, 512 cells reserved)
+  and the outline of strokes are allocated once with the renderer (`PathBuffers`) instead of for
+  every path, see [Heap fragmentation](#heap-fragmentation).
 - **Strokes converted to outlines once** (`zeno::apply`), so the bands only rasterize the filled
   outline instead of stroking the path again for each band.
 - **Coverage scaling without divisions:** `(v + (v >> 8) + 1) >> 8` instead of `v / 255`. It

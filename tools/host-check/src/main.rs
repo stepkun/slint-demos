@@ -6,7 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
 use slint::platform::software_renderer::{
@@ -18,10 +18,11 @@ slint::include_modules!();
 // the same display as in the firmware: 240x320 portrait
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
-// limits of the firmware: heap size, and the largest block the patched renderer
-// allocates for a path mask band (MAX_MASK_BYTES)
+// limits of the firmware: heap size, and the largest block that may be allocated: the mask of a
+// path band (MAX_MASK_BYTES of the patched renderer), which is allocated once at the start.
+// Larger blocks may not be found any more once the heap is fragmented.
 const HEAP_LIMIT: usize = 92 * 1024;
-const ALLOCATION_LIMIT: usize = 24 * 1024;
+const ALLOCATION_LIMIT: usize = 8 * 1024;
 // largest allowed difference per colour channel between partial and full redraw, in RGB565 steps
 // (the banded path masks shift anti-aliased edges by one step, see the firmware README)
 const COLOUR_TOLERANCE: u8 = 1;
@@ -44,12 +45,60 @@ static HEAP_PEAK: AtomicUsize = AtomicUsize::new(0);
 static LARGEST_ALLOCATION: AtomicUsize = AtomicUsize::new(0);
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 
+// on 32-bit builds the heap of the firmware: its TLSF allocator in a block of HEAP_LIMIT bytes,
+// so the overhead per block and the fragmentation are the same as on the device. Allocations
+// made before it is switched on, by the Rust runtime, stay with the system allocator.
+static TLSF: embedded_alloc::TlsfHeap = embedded_alloc::TlsfHeap::empty();
+static USE_TLSF: AtomicBool = AtomicBool::new(false);
+#[repr(align(8))]
+#[allow(dead_code)] // only used through a pointer
+struct Arena([u8; HEAP_LIMIT]);
+static mut ARENA: Arena = Arena([0; HEAP_LIMIT]);
+// highest use of the TLSF heap including its overhead (block headers, alignment), sampled
+// after every allocation
+static TLSF_PEAK: AtomicUsize = AtomicUsize::new(0);
+// frame being rendered and heap in use before the slint setup, for the out of memory report
+static FRAME: AtomicU64 = AtomicU64::new(0);
+static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
+
+/// Bytes of the TLSF heap in use including its overhead
+/// (`TlsfHeap::used()` of embedded-alloc 0.7 borrows its heap twice and panics)
+fn tlsf_used() -> usize {
+    HEAP_LIMIT - TLSF.free()
+}
+
+fn in_arena(ptr: *mut u8) -> bool {
+    let start = (&raw const ARENA) as usize;
+    (start..start + HEAP_LIMIT).contains(&(ptr as usize))
+}
+
 /// Global allocator that counts like the one of the firmware
 struct CountingAllocator;
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { System.alloc(layout) };
+        let ptr = if USE_TLSF.load(Relaxed) {
+            let ptr = unsafe { TLSF.alloc(layout) };
+            if !ptr.is_null() {
+                TLSF_PEAK.fetch_max(tlsf_used(), Relaxed);
+            } else {
+                // like the firmware this ends the run (the allocation error aborts), report
+                // first, without allocating
+                use std::io::Write;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "FAIL: out of heap in frame {}: allocation of {} bytes, {} bytes requested and {} bytes with overhead in use, TLSF heap of {} KB",
+                    FRAME.load(Relaxed),
+                    layout.size(),
+                    HEAP_USED.load(Relaxed) - HEAP_BASE.load(Relaxed),
+                    tlsf_used(),
+                    HEAP_LIMIT / 1024
+                );
+            }
+            ptr
+        } else {
+            unsafe { System.alloc(layout) }
+        };
         if !ptr.is_null() {
             let used = HEAP_USED.fetch_add(layout.size(), Relaxed) + layout.size();
             HEAP_PEAK.fetch_max(used, Relaxed);
@@ -61,7 +110,11 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         HEAP_USED.fetch_sub(layout.size(), Relaxed);
-        unsafe { System.dealloc(ptr, layout) }
+        if in_arena(ptr) {
+            unsafe { TLSF.dealloc(ptr, layout) }
+        } else {
+            unsafe { System.dealloc(ptr, layout) }
+        }
     }
 }
 
@@ -94,16 +147,22 @@ struct Options {
     frame_ms: u64,
     // only this instrument, instead of all one after the other
     instrument: Option<usize>,
+    // allocate from the TLSF heap of the firmware instead of the system allocator
+    // (default on 32-bit builds, a 64-bit build doesn't fit into it)
+    tlsf: bool,
     png: Option<String>,
 }
 
 const USAGE: &str = "\
-usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--png FILE]
+usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--system-alloc] [--png FILE]
 
   --frames N         number of animated frames (default 1000)
   --frame-ms MS      simulated time per frame in ms (default 67, about 15 fps like the firmware)
   --instrument NAME  only attitude, altimeter or airspeed (default: each for 20 s, like the
                      firmware demo)
+  --system-alloc     only count the allocations, instead of allocating from the TLSF heap of
+                     the firmware (92 KB, the default on 32-bit builds like i686, which
+                     tools/host-check/.cargo/config.toml selects)
   --png FILE         save the last partially redrawn frame as PNG";
 
 fn parse_options() -> Result<Options, String> {
@@ -111,6 +170,7 @@ fn parse_options() -> Result<Options, String> {
         frames: DEFAULT_FRAMES,
         frame_ms: DEFAULT_FRAME_MS,
         instrument: None,
+        tlsf: cfg!(target_pointer_width = "32"),
         png: None,
     };
     let mut args = std::env::args().skip(1);
@@ -129,6 +189,7 @@ fn parse_options() -> Result<Options, String> {
                 options.instrument =
                     Some(index.ok_or(format!("--instrument: unknown instrument {name}"))?);
             }
+            "--system-alloc" => options.tlsf = false,
             "--png" => options.png = Some(value()?),
             "-h" | "--help" => return Err(String::new()),
             _ => return Err(format!("unknown argument {arg}")),
@@ -256,14 +317,34 @@ fn main() -> ExitCode {
     let mut full_buffer =
         vec![Rgb565BigEndianPixel(0xf81fu16.to_be()); DISPLAY_WIDTH * DISPLAY_HEIGHT];
     let mut frame_allocations = Vec::with_capacity(options.frames as usize);
+    let mut comparisons: Vec<(usize, Comparison)> = Vec::with_capacity(options.frames as usize);
     // the first output allocates the stdout buffer, so it is done before counting starts too
     println!(
-        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms",
-        options.frames, options.frame_ms
+        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms, {}",
+        options.frames,
+        options.frame_ms,
+        if options.tlsf {
+            "TLSF heap of the firmware"
+        } else {
+            "system allocator"
+        }
     );
+    if cfg!(target_pointer_width = "64") {
+        println!(
+            "note: 64-bit build, the heap numbers are larger than on the device and the TLSF heap \
+             is not used, see README.md"
+        );
+    }
+
+    if options.tlsf {
+        // SAFETY: the arena is only used by the TLSF heap, which is initialized once
+        unsafe { TLSF.init((&raw mut ARENA) as usize, HEAP_LIMIT) };
+        USE_TLSF.store(true, Relaxed);
+    }
 
     // from here on the heap is counted, like in the firmware from the start
     let heap_base = HEAP_USED.load(Relaxed);
+    HEAP_BASE.store(heap_base, Relaxed);
     HEAP_PEAK.store(heap_base, Relaxed);
     LARGEST_ALLOCATION.store(0, Relaxed);
 
@@ -287,7 +368,6 @@ fn main() -> ExitCode {
     // heap peak and partial vs. full redraw per instrument, the frame that switches to an
     // instrument counts for it, because it creates the instrument
     let mut instrument_peaks = [None; INSTRUMENTS.len()];
-    let mut comparisons: Vec<(usize, Comparison)> = Vec::new();
     let mut shown = options.instrument.unwrap_or(0);
     ui.set_instrument(shown as i32);
     let mut heap_peak = 0;
@@ -300,6 +380,7 @@ fn main() -> ExitCode {
 
     for frame in 0..options.frames {
         let time_ms = frame * options.frame_ms;
+        FRAME.store(frame, Relaxed);
         SIMULATED_TIME_MS.store(time_ms, Relaxed);
         let allocations_before = ALLOCATIONS.load(Relaxed);
 
@@ -365,6 +446,8 @@ fn main() -> ExitCode {
 
     // results of the animated run
     finish_peak(&mut instrument_peaks[shown], &mut heap_peak, heap_base);
+    // the report and the PNG are not part of the firmware, they don't use its heap
+    USE_TLSF.store(false, Relaxed);
     let largest_allocation = LARGEST_ALLOCATION.load(Relaxed);
     let heap_end = HEAP_USED.load(Relaxed) - heap_base;
 
@@ -379,6 +462,12 @@ fn main() -> ExitCode {
         kb(heap_peak),
         HEAP_LIMIT / 1024
     );
+    if options.tlsf {
+        println!(
+            "  with TLSF overhead:       {:6.1} KB (all instruments)",
+            kb(TLSF_PEAK.load(Relaxed))
+        );
+    }
     for (name, peak) in INSTRUMENTS.iter().zip(instrument_peaks) {
         if let Some(peak) = peak {
             println!("  {:<25} {:6.1} KB", format!("{name}:"), kb(peak));

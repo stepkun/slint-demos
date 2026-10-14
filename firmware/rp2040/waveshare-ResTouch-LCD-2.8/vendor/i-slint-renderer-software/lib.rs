@@ -452,6 +452,10 @@ pub struct SoftwareRenderer {
     rendering_metrics_collector: Option<Rc<RenderingMetricsCollector>>,
     #[cfg(feature = "systemfonts")]
     text_layout_cache: sharedparley::TextLayoutCache,
+    /// patched: buffers for rendering paths, allocated once with the renderer and then kept,
+    /// see `path::PathBuffers`
+    #[cfg(feature = "path")]
+    path_buffers: RefCell<path::PathBuffers>,
 }
 
 impl Default for SoftwareRenderer {
@@ -465,6 +469,8 @@ impl Default for SoftwareRenderer {
             repaint_buffer_type: Default::default(),
             #[cfg(feature = "systemfonts")]
             text_layout_cache: Default::default(),
+            #[cfg(feature = "path")]
+            path_buffers: Default::default(),
         }
     }
 }
@@ -603,6 +609,8 @@ impl SoftwareRenderer {
             "buffer of size {} with {pixels_per_line} pixels per line is too small to handle a window of size {size:?}",
             buffer_pixel_count
         );
+        #[cfg(feature = "path")]
+        let mut path_buffers = self.path_buffers.borrow_mut();
         let buffer_renderer = SceneBuilder::new(
             size,
             factor,
@@ -612,6 +620,8 @@ impl SoftwareRenderer {
                 dirty_range_cache: Vec::new(),
                 dirty_region: Default::default(),
                 scale_factor: factor,
+                #[cfg(feature = "path")]
+                path_buffers: &mut path_buffers,
             },
             rotation,
             #[cfg(feature = "systemfonts")]
@@ -1841,6 +1851,9 @@ struct RenderToBuffer<'a, TargetPixelBuffer> {
     dirty_range_cache: Vec<core::ops::Range<i16>>,
     dirty_region: PhysicalRegion,
     scale_factor: ScaleFactor,
+    // patched: the kept path buffers of the renderer
+    #[cfg(feature = "path")]
+    path_buffers: &'a mut path::PathBuffers,
 }
 
 impl<B: target_pixel_buffer::TargetPixelBuffer> RenderToBuffer<'_, B> {
@@ -2016,7 +2029,14 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<
         color: PremultipliedRgbaColor,
     ) {
         let clip_rects = self.path_clip_rects(&clip_geometry);
-        path::render_filled_path(&commands, &path_geometry, &clip_rects, color, self.buffer);
+        path::render_filled_path(
+            &commands,
+            &path_geometry,
+            &clip_rects,
+            color,
+            self.path_buffers,
+            self.buffer,
+        );
     }
 
     #[cfg(feature = "path")]
@@ -2041,6 +2061,7 @@ impl<B: target_pixel_buffer::TargetPixelBuffer> ProcessScene for RenderToBuffer<
             stroke_line_cap,
             stroke_line_join,
             stroke_miter_limit,
+            self.path_buffers,
             self.buffer,
         );
     }
