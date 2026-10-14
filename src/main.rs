@@ -34,6 +34,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             ui.set_pitch(triangle(time, Duration::from_secs(5), 10.0));
             ui.set_altitude(5000.0 + triangle(time, Duration::from_secs(60), 5000.0));
             ui.set_airspeed(105.0 + triangle(time, Duration::from_secs(30), 75.0));
+            // a steady turn, once around per minute
+            ui.set_heading((time.as_millis() % 60_000) as f32 * 0.006);
         },
     );
 

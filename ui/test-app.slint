@@ -6,6 +6,7 @@
 import { Attitude } from "attitude.slint";
 import { Altimeter } from "altimeter.slint";
 import { Airspeed } from "airspeed.slint";
+import { Heading } from "heading.slint";
 import { Theme } from "theme.slint";
 // on MCUs there are no system fonts, so the font is embedded
 import "fonts/NotoSans-Regular.ttf";
@@ -19,7 +20,10 @@ export component AppWindow inherits Window {
     in property <float> altitude: 0;
     // indicated airspeed in knots
     in property <float> airspeed: 0;
-    // shown instrument: 0 attitude indicator, 1 altimeter, 2 airspeed indicator
+    // magnetic heading, 0deg is north
+    in property <angle> heading: 0deg;
+    // shown instrument: 0 attitude indicator, 1 altimeter, 2 airspeed indicator,
+    // 3 heading indicator
     // in-out, so the firmware can switch it while there is no touch input yet
     in-out property <int> instrument: 0;
     // default is the resolution of the waveshare rp2040 ResTouch 2.8" display
@@ -64,7 +68,7 @@ export component AppWindow inherits Window {
             // and TouchArea per button: every element and binding costs heap on the RP2040.
             // The order of the buttons is the order of the `instrument` values.
             Rectangle {
-                property <int> button_count: 3;
+                property <int> button_count: 4;
                 property <length> button_size: 36px;
                 property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
                 // index of the touched button, from the position in the frame
@@ -124,6 +128,18 @@ export component AppWindow inherits Window {
                     vertical-alignment: center;
                 }
 
+                Text {
+                    x: root.portrait ? 3 * parent.button_width : 0;
+                    y: root.portrait ? 0 : 3 * parent.button_size;
+                    width: parent.button_width;
+                    height: parent.button_size;
+                    text: "HDG";
+                    color: Theme.marking;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
                 touch := TouchArea {
                     clicked => {
                         root.instrument = parent.touched;
@@ -152,6 +168,10 @@ export component AppWindow inherits Window {
 
             if root.instrument == 2: Airspeed {
                 airspeed: root.airspeed;
+            }
+
+            if root.instrument == 3: Heading {
+                heading: root.heading;
             }
         }
     }
