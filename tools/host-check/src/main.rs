@@ -38,6 +38,9 @@ const INSTRUMENTS: [&str; 6] = [
 ];
 // like the firmware demo, the instrument changes every 20 seconds
 const INSTRUMENT_MS: u64 = 20_000;
+// with --random the instrument changes after 1 to 10 seconds, like tapping the buttons
+const RANDOM_MIN_MS: u64 = 1_000;
+const RANDOM_MAX_MS: u64 = 10_000;
 
 // defaults of the simulated run: the firmware reaches about 15 fps,
 // 2100 frames are 141 seconds: each instrument for 20 seconds, then back to the first one,
@@ -64,6 +67,8 @@ static mut ARENA: Arena = Arena([0; HEAP_LIMIT]);
 // frame being rendered and heap in use before the slint setup, for the out of memory report
 static FRAME: AtomicU64 = AtomicU64::new(0);
 static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
+// size of the TLSF heap of this run, HEAP_LIMIT or less with --heap-kb
+static HEAP_SIZE: AtomicUsize = AtomicUsize::new(HEAP_LIMIT);
 
 fn in_arena(ptr: *mut u8) -> bool {
     let start = (&raw const ARENA) as usize;
@@ -91,7 +96,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
                     FRAME.load(Relaxed),
                     layout.size(),
                     HEAP_USED.load(Relaxed) - HEAP_BASE.load(Relaxed),
-                    HEAP_LIMIT / 1024
+                    HEAP_SIZE.load(Relaxed) / 1024
                 );
                 std::process::abort();
             }
@@ -150,16 +155,25 @@ struct Options {
     // allocate from the TLSF heap of the firmware instead of the system allocator
     // (default on 32-bit builds, a 64-bit build doesn't fit into it)
     tlsf: bool,
+    // size of the TLSF heap in bytes, smaller than the firmware's to find the room left
+    heap_size: usize,
+    // seed of a random sequence of instruments instead of the demo sequence
+    random: Option<u64>,
     png: Option<String>,
 }
 
 const USAGE: &str = "\
-usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--system-alloc] [--png FILE]
+usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--random SEED]
+                  [--heap-kb KB] [--system-alloc] [--png FILE]
 
   --frames N         number of animated frames (default 2100)
   --frame-ms MS      simulated time per frame in ms (default 67, about 15 fps like the firmware)
   --instrument NAME  only attitude, altimeter, airspeed, heading, vertical-speed or
                      turn-coordinator (default: each for 20 s, like the firmware demo)
+  --random SEED      switch to a random other instrument every 1 to 10 s, like tapping the
+                     buttons on the device; the same SEED gives the same sequence
+  --heap-kb KB       TLSF heap of KB instead of 92 KB: the smallest size that still passes
+                     shows how much room is left for the differences to the device
   --system-alloc     only count the allocations, instead of allocating from the TLSF heap of
                      the firmware (92 KB, the default on 32-bit builds like i686, which
                      tools/host-check/.cargo/config.toml selects)
@@ -171,6 +185,8 @@ fn parse_options() -> Result<Options, String> {
         frame_ms: DEFAULT_FRAME_MS,
         instrument: None,
         tlsf: cfg!(target_pointer_width = "32"),
+        heap_size: HEAP_LIMIT,
+        random: None,
         png: None,
     };
     let mut args = std::env::args().skip(1);
@@ -189,6 +205,16 @@ fn parse_options() -> Result<Options, String> {
                 options.instrument =
                     Some(index.ok_or(format!("--instrument: unknown instrument {name}"))?);
             }
+            "--random" => {
+                options.random = Some(value()?.parse().map_err(|e| format!("--random: {e}"))?)
+            }
+            "--heap-kb" => {
+                let kb: usize = value()?.parse().map_err(|e| format!("--heap-kb: {e}"))?;
+                if kb == 0 || kb * 1024 > HEAP_LIMIT {
+                    return Err(format!("--heap-kb must be 1 to {}", HEAP_LIMIT / 1024));
+                }
+                options.heap_size = kb * 1024;
+            }
             "--system-alloc" => options.tlsf = false,
             "--png" => options.png = Some(value()?),
             "-h" | "--help" => return Err(String::new()),
@@ -197,6 +223,9 @@ fn parse_options() -> Result<Options, String> {
     }
     if options.frames == 0 || options.frame_ms == 0 {
         return Err("--frames and --frame-ms must be greater than 0".into());
+    }
+    if options.instrument.is_some() && options.random.is_some() {
+        return Err("--instrument and --random exclude each other".into());
     }
     Ok(options)
 }
@@ -282,22 +311,58 @@ fn save_png(path: &str, buffer: &[Rgb565BigEndianPixel]) -> Result<(), String> {
         .map_err(|e| format!("{path}: {e}"))
 }
 
-/// The instrument shown in a frame
-fn instrument_at(options: &Options, frame: u64) -> usize {
-    let time_ms = frame * options.frame_ms;
-    options
-        .instrument
-        .unwrap_or((time_ms / INSTRUMENT_MS) as usize % INSTRUMENTS.len())
+/// xorshift64*, enough for a reproducible sequence of instruments without a dependency
+struct Random(u64);
+
+impl Random {
+    fn new(seed: u64) -> Self {
+        // the state must not be 0
+        Random(seed ^ 0x9e37_79b9_7f4a_7c15 | 1)
+    }
+
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+
+    /// a number from 0 to n - 1
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
 }
 
-/// Takes the heap peak since the last call as the peak of an instrument (the highest one if it
-/// was shown before), and starts counting again
-fn finish_peak(instrument_peak: &mut Option<usize>, heap_peak: &mut usize, heap_base: usize) {
-    let peak = HEAP_PEAK.load(Relaxed) - heap_base;
-    *instrument_peak = Some(instrument_peak.unwrap_or(0).max(peak));
-    *heap_peak = (*heap_peak).max(peak);
-    HEAP_PEAK.store(HEAP_USED.load(Relaxed), Relaxed);
+/// The instrument shown in every frame: the demo sequence of the firmware, one instrument,
+/// or a random sequence
+fn instrument_sequence(options: &Options) -> Vec<usize> {
+    if let Some(instrument) = options.instrument {
+        return vec![instrument; options.frames as usize];
+    }
+    let Some(seed) = options.random else {
+        return (0..options.frames)
+            .map(|frame| (frame * options.frame_ms / INSTRUMENT_MS) as usize % INSTRUMENTS.len())
+            .collect();
+    };
+    let mut random = Random::new(seed);
+    let mut sequence = Vec::with_capacity(options.frames as usize);
+    let mut shown = 0;
+    let mut next_switch_ms = 0;
+    for frame in 0..options.frames {
+        let time_ms = frame * options.frame_ms;
+        if time_ms >= next_switch_ms {
+            if frame > 0 {
+                // another instrument than the one shown, as a tap on another button
+                shown = (shown + 1 + random.below(INSTRUMENTS.len() as u64 - 1) as usize)
+                    % INSTRUMENTS.len();
+            }
+            next_switch_ms = time_ms + RANDOM_MIN_MS + random.below(RANDOM_MAX_MS - RANDOM_MIN_MS);
+        }
+        sequence.push(shown);
+    }
+    sequence
 }
+
 
 fn main() -> ExitCode {
     let options = match parse_options() {
@@ -318,15 +383,21 @@ fn main() -> ExitCode {
         vec![Rgb565BigEndianPixel(0xf81fu16.to_be()); DISPLAY_WIDTH * DISPLAY_HEIGHT];
     let mut frame_allocations = Vec::with_capacity(options.frames as usize);
     let mut comparisons: Vec<(usize, Comparison)> = Vec::with_capacity(options.frames as usize);
+    let sequence = instrument_sequence(&options);
+    let instrument_at = |frame: u64| sequence[frame as usize];
     // the first output allocates the stdout buffer, so it is done before counting starts too
     println!(
-        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms, {}",
+        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms, {}{}",
         options.frames,
         options.frame_ms,
         if options.tlsf {
-            "TLSF heap of the firmware"
+            format!("TLSF heap of {} KB", options.heap_size / 1024)
         } else {
-            "system allocator"
+            "system allocator".into()
+        },
+        match options.random {
+            Some(seed) => format!(", random instruments (seed {seed})"),
+            None => String::new(),
         }
     );
     if cfg!(target_pointer_width = "64") {
@@ -338,7 +409,8 @@ fn main() -> ExitCode {
 
     if options.tlsf {
         // SAFETY: the arena is only used by the TLSF heap, which is initialized once
-        unsafe { TLSF.init((&raw mut ARENA) as usize, HEAP_LIMIT) };
+        unsafe { TLSF.init((&raw mut ARENA) as usize, options.heap_size) };
+        HEAP_SIZE.store(options.heap_size, Relaxed);
         USE_TLSF.store(true, Relaxed);
     }
 
@@ -367,11 +439,14 @@ fn main() -> ExitCode {
     // the larger blocks of the start, while the heap is empty, are allowed
     let setup_largest_allocation = LARGEST_ALLOCATION.swap(0, Relaxed);
 
-    // heap peak and partial vs. full redraw per instrument, the frame that switches to an
-    // instrument counts for it, because it creates the instrument
+    // heap peak per instrument: the peak of each frame counts for the instrument that exists
+    // in it (`shown` of the UI, which follows `instrument` through -1 for a frame, so the old
+    // instrument is destroyed before the new one is created); the frame that creates an
+    // instrument counts for it, the frame without one for the instrument before
     let mut instrument_peaks = [None; INSTRUMENTS.len()];
-    let mut shown = options.instrument.unwrap_or(0);
+    let mut shown = instrument_at(0);
     ui.set_instrument(shown as i32);
+    let mut existing = shown;
     let mut heap_peak = 0;
 
     // status line like in the firmware, updated once per simulated second
@@ -385,10 +460,11 @@ fn main() -> ExitCode {
         SIMULATED_TIME_MS.store(time_ms, Relaxed);
         let allocations_before = ALLOCATIONS.load(Relaxed);
 
-        let instrument = instrument_at(&options, frame);
+        // the heap peak of this frame
+        HEAP_PEAK.store(HEAP_USED.load(Relaxed), Relaxed);
+
+        let instrument = instrument_at(frame);
         if instrument != shown {
-            // the peak of the instrument shown until now is finished
-            finish_peak(&mut instrument_peaks[shown], &mut heap_peak, heap_base);
             shown = instrument;
             ui.set_instrument(instrument as i32);
         }
@@ -417,7 +493,7 @@ fn main() -> ExitCode {
 
         // after the last frame of an instrument, while nothing has changed since rendering it,
         // compare it with a fresh full render (its allocations are not counted)
-        if frame + 1 == options.frames || instrument_at(&options, frame + 1) != shown {
+        if frame + 1 == options.frames || instrument_at(frame + 1) != shown {
             let peak = HEAP_PEAK.load(Relaxed);
             let allocations = ALLOCATIONS.load(Relaxed);
             comparisons.push((
@@ -435,17 +511,24 @@ fn main() -> ExitCode {
                 "{:.1} fps, heap peak {} of {} KB",
                 fps,
                 (HEAP_PEAK.load(Relaxed) - heap_base).max(heap_peak) / 1024,
-                HEAP_LIMIT / 1024,
+                options.heap_size / 1024,
             ));
             statistics_start = time_ms;
             statistics_frames = 0;
         }
 
+        if let Ok(index) = usize::try_from(ui.get_shown()) {
+            existing = index;
+        }
+        let frame_peak = HEAP_PEAK.load(Relaxed) - heap_base;
+        let peak = &mut instrument_peaks[existing];
+        *peak = Some(peak.unwrap_or(0).max(frame_peak));
+        heap_peak = heap_peak.max(frame_peak);
+
         frame_allocations.push(ALLOCATIONS.load(Relaxed) - allocations_before);
     }
 
     // results of the animated run
-    finish_peak(&mut instrument_peaks[shown], &mut heap_peak, heap_base);
     // the report and the PNG are not part of the firmware, they don't use its heap
     USE_TLSF.store(false, Relaxed);
     let largest_allocation = LARGEST_ALLOCATION.load(Relaxed);
@@ -460,7 +543,7 @@ fn main() -> ExitCode {
     println!(
         "heap peak:                  {:6.1} KB (limit {} KB)",
         kb(heap_peak),
-        HEAP_LIMIT / 1024
+        options.heap_size / 1024
     );
     for (name, peak) in INSTRUMENTS.iter().zip(instrument_peaks) {
         if let Some(peak) = peak {
@@ -500,11 +583,11 @@ fn main() -> ExitCode {
     }
 
     let mut failed = false;
-    if heap_peak > HEAP_LIMIT {
+    if heap_peak > options.heap_size {
         println!(
             "FAIL: heap peak {:.1} KB exceeds {} KB",
             kb(heap_peak),
-            HEAP_LIMIT / 1024
+            options.heap_size / 1024
         );
         failed = true;
     }

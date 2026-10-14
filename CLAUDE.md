@@ -55,15 +55,20 @@ cargo run --release                           # every instrument for 20 s, like 
 
 It runs 32-bit with the firmware's TLSF allocator, so sizes, allocator overhead (~20 %) and
 fragmentation match the device. The heap peak in the status line counts requested bytes only.
+A passing host check is not enough: the allocation order of the device differs, so keep room.
+Find the smallest heap that passes with `--heap-kb`, for the demo sequence and for random
+switching (`--random SEED --frames 4500`), see `tools/host-check/README.md`. The airspeed
+indicator crashed the device with 4 KB to spare (88 KB); now both pass in 83 KB.
 
 Without the hardware, the final check on the display is done by the maintainer. Say clearly
 what was only built or tested on the host.
 
 ## RP2040 constraints for `.slint` code
 
-The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which ~67 KB are used at peak
-by the attitude indicator), no FPU and no divide instruction. The Slint software renderer
-(1.18.1) has no rotation or scaling transforms.
+The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which 61 KB are requested at
+peak on the device when switching at random, 59 KB in the host check, plus ~20 % TLSF
+overhead), no FPU and no divide instruction. The Slint software renderer (1.18.1) has no
+rotation or scaling transforms.
 
 - **No transforms.** Rotated parts are calculated with `sin()`/`cos()`.
 - **Keep `Path` boxes small.** Each path is rasterized into a mask of 1 byte per pixel of its
@@ -98,8 +103,18 @@ by the attitude indicator), no FPU and no divide instruction. The Slint software
   turn coordinator); `round()` its position and size.
 - **Moving parts get tight boxes that follow them,** and static paths are grouped so that their
   boxes never overlap a moving box (checked by `tools/dial-paths.py` for every hand angle).
-- **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts.
-- Use the colours and widths from `Theme`, don't hard-code them.
+- **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts. The
+  glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of the firmware and of
+  `tools/host-check`), the font sizes of `Theme` (12, 14 and 20 px); a size in between falls
+  back to the next smaller one. Keep them in sync, and round scaled font sizes to whole pixels.
+- Use the colours, widths and font sizes from `Theme`, don't hard-code them. Widths and font
+  sizes are those at `Theme.reference_size` (the display); the instruments multiply them by
+  their `scale` (exactly 1 on the device), so they keep their proportions on the desktop.
+- **Only one instrument exists at a time.** `ui/test-app.slint` switches through
+  `shown = -1` for one frame: the `if`s are updated in the order they are written, so switched
+  to an instrument above the shown one, both would exist at once and not fit into the heap.
+- **Instruments are centred squares:** every part lies in one `Rectangle` of `size`, centred in
+  the area the instrument is given, so the generated paths are indented one level deeper.
 
 ## Firmware notes
 

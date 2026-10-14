@@ -19,6 +19,15 @@ export global Theme {
 
     // dimensions
     out property <float> ring_ratio: 10%;       // ring thickness relative to instrument size
+    // The widths and font sizes below are those of an instrument of `reference_size`, the size
+    // on the display of the device. The instruments scale them with their size, so they keep
+    // their proportions on the desktop, and are exactly these values on the device.
+    out property <length> reference_size: 240px;
     out property <length> marking_width: 3px;
     out property <length> vehicle_width: 3px;   // line width of the vehicle symbol
+    // Only these font sizes are embedded for the device (SLINT_FONT_SIZES in the build.rs of
+    // the firmware and of tools/host-check), keep them in sync.
+    out property <length> menu_font_size: 12px;  // menu and status line
+    out property <length> font_size: 14px;       // labels of the instruments
+    out property <length> large_font_size: 20px; // numbers on the dials, heading card
 }
