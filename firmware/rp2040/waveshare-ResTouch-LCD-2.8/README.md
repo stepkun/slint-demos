@@ -268,8 +268,8 @@ The menu area shows a status line, updated once per second:
 
 - **fps:** frames drawn and sent per second.
 - **heap peak:** highest heap use since the start, measured in the allocator (requested bytes,
-  without the TLSF overhead). With all six instruments it is 61 KB; in the host check the
-  airspeed indicator needs the most.
+  without the TLSF overhead). It reaches 61 KB when switching between the instruments at
+  random; in the host check the airspeed indicator needs the most.
 
 Render and send times were shown too while the performance was tuned (the table below). They
 were removed to make room in the menu area; measure them again with temporary timing points.
@@ -307,9 +307,9 @@ The RP2040 has 264 KB of RAM, used like this:
 
 The heap peak in the status line counts the requested bytes. The TLSF allocator needs about 20 %
 more for its block headers and alignment. `tools/host-check` runs the same allocator in a 92 KB
-block on the host (32-bit, like the RP2040) and fails if it runs out. With all six instruments
-the peak is 61 KB requested on the device and 59 KB in the host check; the device allocates a
-little more and in a different order. Including the overhead it was about 76 KB in an older
+block on the host (32-bit, like the RP2040) and fails if it runs out. Switching between all six
+instruments at random, the peak is 61 KB requested on the device and 59 KB in the host check
+(`--random`); the device allocates a little more and in a different order. Including the overhead it was about 76 KB in an older
 measurement, with a peak of 57 KB requested.
 
 Keep room for these differences. The host check passes down to a heap of 83 KB, for the demo
