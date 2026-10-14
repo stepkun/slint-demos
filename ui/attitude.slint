@@ -12,7 +12,6 @@ export component Attitude inherits Rectangle {
 
     property <length> size: min(self.width, self.height);
     property <length> outer_thickness: size * Theme.ring_ratio;
-    property <float> outer_radius: (size - outer_thickness) / 2px;
     property <float> size_float: size / 1px;
 
     // inner part, all values in viewbox units
@@ -54,29 +53,14 @@ export component Attitude inherits Rectangle {
     // command strings: formatting and parsing the numbers of a string is slow on the RP2040.
     // (Path elements can't be created with `for` yet, so they are written out.)
 
-    // distance of a pitch ladder line from the center, positive pitch lines are above the horizon
-    pure function ladder_offset(step: int) -> float {
-        return pitch_offset - step * pitch_scale;
-    }
-
-    // half length of a pitch ladder line, `length` relative to the inner radius,
-    // zero (nothing drawn) if the line is not completely inside the inner circle
-    pure function ladder_half(step: int, length: float) -> float {
-        return visible_half(ladder_offset(step), inner_radius * length);
-    }
-    pure function visible_half(offset: float, half_width: float) -> float {
-        return offset * offset + half_width * half_width < 0.9 * inner_radius * inner_radius ? half_width : 0;
-    }
-
-    // end points of a pitch ladder line, side is -1 for the left and 1 for the right end
-    // extra long lines (0.30) every 20 degree, long lines (0.20) every 10 degree,
-    // short lines (0.10) in between
-    pure function ladder_x(step: int, length: float, side: float) -> float {
-        return center + ladder_offset(step) * nx + side * ladder_half(step, length) * ux;
-    }
-    pure function ladder_y(step: int, length: float, side: float) -> float {
-        return center + ladder_offset(step) * ny + side * ladder_half(step, length) * uy;
-    }
+    // Pitch ladder: lines every 5 degree from -30 to 30, extra long (0.30 of the inner radius)
+    // every 20 degree, long (0.20) every 10 degree, short (0.10) in between. A line is drawn
+    // only while it is completely inside 0.95 of the inner radius:
+    // offset² + (length · r)² < 0.9 r² with offset = r / 25 · (pitch - step) is the same as
+    // |pitch - step| < 25 · sqrt(0.9 - length²), i.e. 23.585 (short), 23.184 (long) and
+    // 22.5 degree (extra long); otherwise both ends are the same point and nothing is drawn.
+    // The coordinates are written out instead of calling functions: in a function every call
+    // reads the properties again, and each read costs a dependency node of heap.
 
     background: transparent;    // show background of parent
 
@@ -94,7 +78,10 @@ export component Attitude inherits Rectangle {
             width: size;
             height: size;
             border-radius: size / 2;
-            border-width: outer_thickness;
+            // 2px wider than the ring, under the inner sky disc (which is 1px smaller than the
+            // inner circle): with anti-aliased edges at the same radius the background would show
+            // through as a thin circle
+            border-width: outer_thickness + 2px;
             border-color: Theme.sky;
         }
     }
@@ -113,7 +100,8 @@ export component Attitude inherits Rectangle {
             width: size;
             height: size;
             border-radius: size / 2;
-            border-width: outer_thickness;
+            // 2px under the inner disc, see above
+            border-width: outer_thickness + 2px;
             border-color: Theme.ground;
         }
     }
@@ -400,10 +388,12 @@ export component Attitude inherits Rectangle {
     }
 
     // inner part: sky as full disc
+    // 1px smaller than the inner circle, its edge lies on the ring: at the same radius as the
+    // ground path its anti-aliased edge would show through the edge of the ground as a thin line
     Rectangle {
-        x: outer_thickness;
-        y: outer_thickness;
-        width: size - 2 * outer_thickness;
+        x: outer_thickness + 1px;
+        y: outer_thickness + 1px;
+        width: size - 2 * outer_thickness - 2px;
         height: self.width;
         border-radius: self.width / 2;
         background: Theme.sky;
@@ -486,123 +476,123 @@ export component Attitude inherits Rectangle {
         stroke-width: Theme.marking_width / 2;
 
         MoveTo {
-            x: ladder_x(-30, 0.20, -1);
-            y: ladder_y(-30, 0.20, -1);
+            x: center + (pitch_offset + 30 * pitch_scale) * nx + (abs(root.pitch / 1deg + 30) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 30 * pitch_scale) * ny + (abs(root.pitch / 1deg + 30) < 23.184 ? -0.20 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(-30, 0.20, 1);
-            y: ladder_y(-30, 0.20, 1);
+            x: center + (pitch_offset + 30 * pitch_scale) * nx + (abs(root.pitch / 1deg + 30) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 30 * pitch_scale) * ny + (abs(root.pitch / 1deg + 30) < 23.184 ? 0.20 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(-25, 0.10, -1);
-            y: ladder_y(-25, 0.10, -1);
+            x: center + (pitch_offset + 25 * pitch_scale) * nx + (abs(root.pitch / 1deg + 25) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 25 * pitch_scale) * ny + (abs(root.pitch / 1deg + 25) < 23.585 ? -0.10 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(-25, 0.10, 1);
-            y: ladder_y(-25, 0.10, 1);
+            x: center + (pitch_offset + 25 * pitch_scale) * nx + (abs(root.pitch / 1deg + 25) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 25 * pitch_scale) * ny + (abs(root.pitch / 1deg + 25) < 23.585 ? 0.10 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(-20, 0.30, -1);
-            y: ladder_y(-20, 0.30, -1);
+            x: center + (pitch_offset + 20 * pitch_scale) * nx + (abs(root.pitch / 1deg + 20) < 22.5 ? -0.30 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 20 * pitch_scale) * ny + (abs(root.pitch / 1deg + 20) < 22.5 ? -0.30 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(-20, 0.30, 1);
-            y: ladder_y(-20, 0.30, 1);
+            x: center + (pitch_offset + 20 * pitch_scale) * nx + (abs(root.pitch / 1deg + 20) < 22.5 ? 0.30 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 20 * pitch_scale) * ny + (abs(root.pitch / 1deg + 20) < 22.5 ? 0.30 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(-15, 0.10, -1);
-            y: ladder_y(-15, 0.10, -1);
+            x: center + (pitch_offset + 15 * pitch_scale) * nx + (abs(root.pitch / 1deg + 15) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 15 * pitch_scale) * ny + (abs(root.pitch / 1deg + 15) < 23.585 ? -0.10 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(-15, 0.10, 1);
-            y: ladder_y(-15, 0.10, 1);
+            x: center + (pitch_offset + 15 * pitch_scale) * nx + (abs(root.pitch / 1deg + 15) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 15 * pitch_scale) * ny + (abs(root.pitch / 1deg + 15) < 23.585 ? 0.10 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(-10, 0.20, -1);
-            y: ladder_y(-10, 0.20, -1);
+            x: center + (pitch_offset + 10 * pitch_scale) * nx + (abs(root.pitch / 1deg + 10) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 10 * pitch_scale) * ny + (abs(root.pitch / 1deg + 10) < 23.184 ? -0.20 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(-10, 0.20, 1);
-            y: ladder_y(-10, 0.20, 1);
+            x: center + (pitch_offset + 10 * pitch_scale) * nx + (abs(root.pitch / 1deg + 10) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 10 * pitch_scale) * ny + (abs(root.pitch / 1deg + 10) < 23.184 ? 0.20 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(-5, 0.10, -1);
-            y: ladder_y(-5, 0.10, -1);
+            x: center + (pitch_offset + 5 * pitch_scale) * nx + (abs(root.pitch / 1deg + 5) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 5 * pitch_scale) * ny + (abs(root.pitch / 1deg + 5) < 23.585 ? -0.10 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(-5, 0.10, 1);
-            y: ladder_y(-5, 0.10, 1);
+            x: center + (pitch_offset + 5 * pitch_scale) * nx + (abs(root.pitch / 1deg + 5) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset + 5 * pitch_scale) * ny + (abs(root.pitch / 1deg + 5) < 23.585 ? 0.10 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(5, 0.10, -1);
-            y: ladder_y(5, 0.10, -1);
+            x: center + (pitch_offset - 5 * pitch_scale) * nx + (abs(root.pitch / 1deg - 5) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 5 * pitch_scale) * ny + (abs(root.pitch / 1deg - 5) < 23.585 ? -0.10 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(5, 0.10, 1);
-            y: ladder_y(5, 0.10, 1);
+            x: center + (pitch_offset - 5 * pitch_scale) * nx + (abs(root.pitch / 1deg - 5) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 5 * pitch_scale) * ny + (abs(root.pitch / 1deg - 5) < 23.585 ? 0.10 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(10, 0.20, -1);
-            y: ladder_y(10, 0.20, -1);
+            x: center + (pitch_offset - 10 * pitch_scale) * nx + (abs(root.pitch / 1deg - 10) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 10 * pitch_scale) * ny + (abs(root.pitch / 1deg - 10) < 23.184 ? -0.20 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(10, 0.20, 1);
-            y: ladder_y(10, 0.20, 1);
+            x: center + (pitch_offset - 10 * pitch_scale) * nx + (abs(root.pitch / 1deg - 10) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 10 * pitch_scale) * ny + (abs(root.pitch / 1deg - 10) < 23.184 ? 0.20 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(15, 0.10, -1);
-            y: ladder_y(15, 0.10, -1);
+            x: center + (pitch_offset - 15 * pitch_scale) * nx + (abs(root.pitch / 1deg - 15) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 15 * pitch_scale) * ny + (abs(root.pitch / 1deg - 15) < 23.585 ? -0.10 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(15, 0.10, 1);
-            y: ladder_y(15, 0.10, 1);
+            x: center + (pitch_offset - 15 * pitch_scale) * nx + (abs(root.pitch / 1deg - 15) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 15 * pitch_scale) * ny + (abs(root.pitch / 1deg - 15) < 23.585 ? 0.10 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(20, 0.30, -1);
-            y: ladder_y(20, 0.30, -1);
+            x: center + (pitch_offset - 20 * pitch_scale) * nx + (abs(root.pitch / 1deg - 20) < 22.5 ? -0.30 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 20 * pitch_scale) * ny + (abs(root.pitch / 1deg - 20) < 22.5 ? -0.30 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(20, 0.30, 1);
-            y: ladder_y(20, 0.30, 1);
+            x: center + (pitch_offset - 20 * pitch_scale) * nx + (abs(root.pitch / 1deg - 20) < 22.5 ? 0.30 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 20 * pitch_scale) * ny + (abs(root.pitch / 1deg - 20) < 22.5 ? 0.30 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(25, 0.10, -1);
-            y: ladder_y(25, 0.10, -1);
+            x: center + (pitch_offset - 25 * pitch_scale) * nx + (abs(root.pitch / 1deg - 25) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 25 * pitch_scale) * ny + (abs(root.pitch / 1deg - 25) < 23.585 ? -0.10 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(25, 0.10, 1);
-            y: ladder_y(25, 0.10, 1);
+            x: center + (pitch_offset - 25 * pitch_scale) * nx + (abs(root.pitch / 1deg - 25) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 25 * pitch_scale) * ny + (abs(root.pitch / 1deg - 25) < 23.585 ? 0.10 * inner_radius : 0) * uy;
         }
 
         MoveTo {
-            x: ladder_x(30, 0.20, -1);
-            y: ladder_y(30, 0.20, -1);
+            x: center + (pitch_offset - 30 * pitch_scale) * nx + (abs(root.pitch / 1deg - 30) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 30 * pitch_scale) * ny + (abs(root.pitch / 1deg - 30) < 23.184 ? -0.20 * inner_radius : 0) * uy;
         }
 
         LineTo {
-            x: ladder_x(30, 0.20, 1);
-            y: ladder_y(30, 0.20, 1);
+            x: center + (pitch_offset - 30 * pitch_scale) * nx + (abs(root.pitch / 1deg - 30) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+            y: center + (pitch_offset - 30 * pitch_scale) * ny + (abs(root.pitch / 1deg - 30) < 23.184 ? 0.20 * inner_radius : 0) * uy;
         }
     }
 
