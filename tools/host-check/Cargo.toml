@@ -1,0 +1,29 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "host-check"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+# Renders ui/test-app.slint on the host the way the RP2040 firmware does and checks the heap
+# use and the partial redraws, see README.md.
+# Slint is used exactly like in the firmware: no_std, same version, same features and patches.
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
+# only for saving the last frame
+png = "0.17"
+
+[build-dependencies]
+slint-build = "=1.18.1"
+
+# own workspace, so the crate is not taken as part of the desktop app in the repository root
+[workspace]
+
+# the same patches as in firmware/rp2040/waveshare-ResTouch-LCD-2.8/Cargo.toml,
+# keep both in sync, otherwise this check doesn't test what runs on the device
+[patch.crates-io]
+i-slint-core = { path = "../../firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core" }
+zeno = { path = "../../firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/zeno" }
+i-slint-renderer-software = { path = "../../firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-renderer-software" }
