@@ -67,58 +67,17 @@ in the firmware.
 Example output:
 
 ```
-warning: unused import: `num_traits::Float`
- --> /home/user/slint-demos/firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core/animations/simulations/constant_deceleration.rs:9:5
-  |
-9 | use num_traits::Float;
-  |     ^^^^^^^^^^^^^^^^^
-  |
-  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
-
-warning: unused import: `num_traits::Float`
-  --> /home/user/slint-demos/firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core/animations/simulations/spring.rs:10:5
-   |
-10 | use num_traits::Float;
-   |     ^^^^^^^^^^^^^^^^^
-
-warning: unused import: `num_traits::Float`
-  --> /home/user/slint-demos/firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core/animations.rs:10:5
-   |
-10 | use num_traits::Float;
-   |     ^^^^^^^^^^^^^^^^^
-
-warning: unused import: `num_traits::float::Float`
-  --> /home/user/slint-demos/firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core/graphics/brush.rs:16:5
-   |
-16 | use num_traits::float::Float;
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^
-
-warning: unused import: `num_traits::Float`
-  --> /home/user/slint-demos/firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core/properties/properties_animations.rs:15:5
-   |
-15 | use num_traits::Float;
-   |     ^^^^^^^^^^^^^^^^^
-
-warning: trait `RemEuclid` is never used
-    --> /home/user/slint-demos/firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core/graphics/image.rs:1476:7
-     |
-1476 | trait RemEuclid {
-     |       ^^^^^^^^^
-     |
-     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
-
 host check: 240x320, 1000 frames of 67 ms, TLSF heap of the firmware
 heap after ui setup:          23.4 KB
 heap after last frame:        42.4 KB
 heap peak:                    57.1 KB (limit 92 KB)
-  with TLSF overhead:         75.8 KB (all instruments)
   attitude:                   57.1 KB
   altimeter:                  50.7 KB
   airspeed:                   55.7 KB
 largest single allocation:     8.0 KB (limit 8 KB)
 allocations, first frame:   951
-allocations, later frames:  524.5 on average, 319 to 1381
-redrawn rows per frame:     116.0 of 320 on average
+allocations, later frames:  524.3 on average, 319 to 1381
+redrawn rows per frame:     115.3 of 320 on average
 partial vs. full redraw, at the end of each instrument (limit 1 colour step):
   attitude:                 3 pixels differ, largest difference 1 colour steps
   altimeter:                0 pixels differ, largest difference 0 colour steps
@@ -131,7 +90,7 @@ The check fails if
 
 | Check | Limit | Why |
 |---|---|---|
-| TLSF heap runs out | 92 KB | `HEAP_SIZE` of the firmware. The heap peak shows the requested bytes, per instrument too (the frame that switches to an instrument, and so creates it, counts for it), and with the TLSF overhead. |
+| TLSF heap runs out | 92 KB | `HEAP_SIZE` of the firmware. The heap peak shows the requested bytes, per instrument too (the frame that switches to an instrument, and so creates it, counts for it). The use including the TLSF overhead isn't shown: embedded-alloc 0.7 can only measure it by walking all blocks, and that never returns when built with Rust 1.99 for i686. Measured with Rust 1.97 it was about 76 KB with all instruments. |
 | Heap peak | 92 KB | The requested bytes, mainly for `--system-alloc`. |
 | Largest single allocation | 8 KB | The patched renderer allocates its path buffers (mask of at most 8 KB, `MAX_MASK_BYTES`, and 512 rasterizer cells) once and keeps them. A larger block, allocated again and again, may not be found any more once the heap is fragmented: that crashed the firmware with the airspeed indicator. |
 | Partial vs. full redraw | 1 colour step | After the last frame of each instrument the same state is rendered again from scratch (`RepaintBufferType::NewBuffer`) and compared per RGB565 channel. The banded path masks shift anti-aliased edges by one step, which is allowed. More means partial redraws leave artefacts, like the original 1.18.1 renderer does. |

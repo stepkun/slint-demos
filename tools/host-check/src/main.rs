@@ -54,18 +54,9 @@ static USE_TLSF: AtomicBool = AtomicBool::new(false);
 #[allow(dead_code)] // only used through a pointer
 struct Arena([u8; HEAP_LIMIT]);
 static mut ARENA: Arena = Arena([0; HEAP_LIMIT]);
-// highest use of the TLSF heap including its overhead (block headers, alignment), sampled
-// after every allocation
-static TLSF_PEAK: AtomicUsize = AtomicUsize::new(0);
 // frame being rendered and heap in use before the slint setup, for the out of memory report
 static FRAME: AtomicU64 = AtomicU64::new(0);
 static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
-
-/// Bytes of the TLSF heap in use including its overhead
-/// (`TlsfHeap::used()` of embedded-alloc 0.7 borrows its heap twice and panics)
-fn tlsf_used() -> usize {
-    HEAP_LIMIT - TLSF.free()
-}
 
 fn in_arena(ptr: *mut u8) -> bool {
     let start = (&raw const ARENA) as usize;
@@ -79,19 +70,19 @@ unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let ptr = if USE_TLSF.load(Relaxed) {
             let ptr = unsafe { TLSF.alloc(layout) };
-            if !ptr.is_null() {
-                TLSF_PEAK.fetch_max(tlsf_used(), Relaxed);
-            } else {
+            // the use including the TLSF overhead isn't measured: `used()` and `free()` of
+            // embedded-alloc 0.7 walk all blocks, `used()` panics (it borrows the heap twice),
+            // and `free()` never returns when built with Rust 1.99 for i686
+            if ptr.is_null() {
                 // like the firmware this ends the run (the allocation error aborts), report
                 // first, without allocating
                 use std::io::Write;
                 let _ = writeln!(
                     std::io::stderr(),
-                    "FAIL: out of heap in frame {}: allocation of {} bytes, {} bytes requested and {} bytes with overhead in use, TLSF heap of {} KB",
+                    "FAIL: out of heap in frame {}: allocation of {} bytes, {} bytes requested in use, TLSF heap of {} KB",
                     FRAME.load(Relaxed),
                     layout.size(),
                     HEAP_USED.load(Relaxed) - HEAP_BASE.load(Relaxed),
-                    tlsf_used(),
                     HEAP_LIMIT / 1024
                 );
             }
@@ -462,12 +453,6 @@ fn main() -> ExitCode {
         kb(heap_peak),
         HEAP_LIMIT / 1024
     );
-    if options.tlsf {
-        println!(
-            "  with TLSF overhead:       {:6.1} KB (all instruments)",
-            kb(TLSF_PEAK.load(Relaxed))
-        );
-    }
     for (name, peak) in INSTRUMENTS.iter().zip(instrument_peaks) {
         if let Some(peak) = peak {
             println!("  {:<25} {:6.1} KB", format!("{name}:"), kb(peak));

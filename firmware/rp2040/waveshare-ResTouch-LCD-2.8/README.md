@@ -237,8 +237,8 @@ The RP2040 has 264 KB of RAM, used like this:
 
 The heap peak in the status line counts the requested bytes. The TLSF allocator needs about 20 %
 more for its block headers and alignment. `tools/host-check` runs the same allocator in a 92 KB
-block on the host (32-bit, like the RP2040): with all three instruments the peak is about 57 KB
-requested and 76 KB including the overhead.
+block on the host (32-bit, like the RP2040) and fails if it runs out: with all three instruments
+the peak is about 57 KB requested and was about 76 KB including the overhead (measured once).
 
 ### Heap fragmentation
 
