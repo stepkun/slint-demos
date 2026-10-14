@@ -8,7 +8,7 @@ The RP2040 is the target that matters: everything must work there.
 
 | Path | What |
 |---|---|
-| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `test-app.slint` (`AppWindow` with the instrument selector) |
+| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `vertical-speed.slint`, `test-app.slint` (`AppWindow` with the instrument selector) |
 | `tools/dial-paths.py` | Generates the static tick and arc paths of the instruments (between the `BEGIN`/`END generated` markers) and checks they never overlap a hand box; `--check` fails if a file is not up to date |
 | `src/main.rs` | Desktop app, uses the software renderer to show what the display will show |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
