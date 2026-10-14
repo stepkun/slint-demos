@@ -21,8 +21,9 @@ export component Heading inherits Rectangle {
     property <float> center: size_float / 2;
     // No bezel ring: the card reaches almost to the edge of the instrument, its inner radius is
     // 0.49 of the size (0.5 - RING_RATIO of the heading dial in tools/dial-paths.py).
-    property <float> label_half_width: size_float * 0.05;
-    property <float> label_half_height: size_float * 0.035;
+    // large enough for two digits in Theme.large_font_size, the device clips text to its box
+    property <float> label_half_width: size_float * 0.06;
+    property <float> label_half_height: size_float * 0.045;
 
     // The whole card turns, so the card is redrawn every frame, like the inner disc of the
     // attitude indicator. The software renderer can't rotate, so every point of the card is
