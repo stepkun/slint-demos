@@ -98,8 +98,15 @@ by the airspeed indicator in the host check, plus ~20 % TLSF overhead), no FPU a
   turn coordinator); `round()` its position and size.
 - **Moving parts get tight boxes that follow them,** and static paths are grouped so that their
   boxes never overlap a moving box (checked by `tools/dial-paths.py` for every hand angle).
-- **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts.
-- Use the colours and widths from `Theme`, don't hard-code them.
+- **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts. The
+  glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of the firmware and of
+  `tools/host-check`), `Theme.font_size` and `Theme.large_font_size`; a size in between falls
+  back to the next smaller one. Keep them in sync, and round scaled font sizes to whole pixels.
+- Use the colours, widths and font sizes from `Theme`, don't hard-code them. Widths and font
+  sizes are those at `Theme.reference_size` (the display); the instruments multiply them by
+  their `scale` (exactly 1 on the device), so they keep their proportions on the desktop.
+- **Instruments are centred squares:** every part lies in one `Rectangle` of `size`, centred in
+  the area the instrument is given, so the generated paths are indented one level deeper.
 
 ## Firmware notes
 
