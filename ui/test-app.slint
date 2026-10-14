@@ -1,0 +1,67 @@
+// Copyright © 2026 Stephan Kunz
+// SPDX-License-Identifier: GPL-3.0-only
+// Test app for Instruments
+
+
+import { Attitude } from "attitude.slint";
+import { Theme } from "theme.slint";
+// on MCUs there are no system fonts, so the font is embedded
+import "fonts/NotoSans-Regular.ttf";
+
+export component AppWindow inherits Window {
+    // bank angle of the vehicle, positive is a right bank
+    in property <angle> roll: 0deg;
+    // pitch angle of the vehicle, positive is nose up
+    in property <angle> pitch: 0deg;
+    // default is the resolution of the waveshare rp2040 ResTouch 2.8" display
+    in property <length> screen_width: 320px;
+    in property <length> screen_height: 240px;
+    // diagnostic text shown in the menu area, for example the frame rate
+    in property <string> status;
+
+    default-font-family: "Noto Sans";
+    // the window fills the background, so no other element needs to
+    background: Theme.background;
+
+    // the instrument is a square fitting the shorter screen side
+    property <bool> portrait: root.screen_height > root.screen_width;
+    property <length> instrument_size: min(root.screen_width, root.screen_height);
+    Rectangle {
+        width: root.screen_width;
+        height: root.screen_height;
+
+        // landscape: menu area on the left, portrait: below the instrument
+        // selects the instrument to show
+        menu_area := Rectangle {
+            background: Theme.menu;
+            x: 0;
+            y: root.portrait ? root.instrument_size : 0;
+            width: root.portrait ? root.screen_width : root.screen_width - root.instrument_size;
+            height: root.portrait ? root.screen_height - root.instrument_size : root.screen_height;
+
+            Text {
+                x: 4px;
+                y: 4px;
+                width: parent.width - 8px;
+                text: root.status;
+                color: Theme.marking;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+
+        // landscape: instrument area on the right, portrait: on top
+        // shows the selected instrument
+        instrument_area := Rectangle {
+            x: root.portrait ? 0 : root.screen_width - root.instrument_size;
+            y: 0;
+            width: root.instrument_size;
+            height: root.instrument_size;
+
+            Attitude {
+                roll: root.roll;
+                pitch: root.pitch;
+            }
+        }
+    }
+}

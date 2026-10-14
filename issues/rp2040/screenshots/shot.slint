@@ -1,0 +1,9 @@
+import { Attitude } from "../../../ui/attitude.slint";
+export component Shot inherits Window {
+    width: 720px; height: 240px; background: black;
+    HorizontalLayout {
+        Attitude { width: 240px; height: 240px; }
+        Attitude { width: 240px; height: 240px; roll: 20deg; pitch: 10deg; }
+        Attitude { width: 240px; height: 240px; roll: -30deg; pitch: -15deg; }
+    }
+}

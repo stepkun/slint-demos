@@ -1,0 +1,608 @@
+// Copyright © 2026 Stephan Kunz
+// SPDX-License-Identifier: GPL-3.0-only
+// An attitude indicator
+
+import { Theme } from "theme.slint";
+
+export component Attitude inherits Rectangle {
+    // bank angle, positive is a right bank
+    in property <angle> roll: 0deg;
+    // pitch angle, positive is nose up
+    in property <angle> pitch: 0deg;
+
+    property <length> size: min(self.width, self.height);
+    property <length> outer_thickness: size * Theme.ring_ratio;
+    property <float> outer_radius: (size - outer_thickness) / 2px;
+    property <float> size_float: size / 1px;
+
+    // inner part, all values in viewbox units
+    // the geometry is calculated instead of using transform-rotation,
+    // because the software renderer (used on MCUs) does not support rotations
+    property <float> center: size_float / 2;
+    property <float> inner_radius: center - outer_thickness / 1px;
+    // distance per degree of pitch, 25 degree reach the inner edge
+    property <float> pitch_scale: inner_radius / 25;
+    // direction along the horizon (u) and perpendicular downwards (n)
+    // The functions keep the compiler from inlining sin/cos into every place that uses these
+    // properties: inlined, they are evaluated again for each coordinate, in f64, which is very
+    // slow on the RP2040. As properties they are calculated once per change of the roll.
+    property <float> ux: cos_of(root.roll);
+    property <float> uy: -sin_of(root.roll);
+    property <float> nx: sin_of(root.roll);
+    property <float> ny: cos_of(root.roll);
+    pure function sin_of(a: angle) -> float {
+        return sin(a);
+    }
+    pure function cos_of(a: angle) -> float {
+        return cos(a);
+    }
+    // distance of the horizon from the center, positive is below the center
+    property <float> pitch_offset: root.pitch / 1deg * pitch_scale;
+    // kept slightly inside the circle, so there is always some sky and ground
+    property <float> horizon_offset: max(-0.98 * inner_radius, min(0.98 * inner_radius, pitch_offset));
+    property <float> half_chord: sqrt(inner_radius * inner_radius - horizon_offset * horizon_offset);
+    // horizon end points on the inner circle
+    property <float> left_x: center + horizon_offset * nx - half_chord * ux;
+    property <float> left_y: center + horizon_offset * ny - half_chord * uy;
+    property <float> right_x: center + horizon_offset * nx + half_chord * ux;
+    property <float> right_y: center + horizon_offset * ny + half_chord * uy;
+
+    // On MCUs every Path needs a temporary buffer of one byte per pixel of its box,
+    // so the paths are combined where possible and their boxes are kept small.
+
+    // The paths are built from MoveTo/LineTo elements with calculated coordinates instead of
+    // command strings: formatting and parsing the numbers of a string is slow on the RP2040.
+    // (Path elements can't be created with `for` yet, so they are written out.)
+
+    // a point on a bank tick at the given distance from the center
+    pure function tick_x(bank: angle, distance: float) -> float {
+        return center + distance * sin(bank);
+    }
+    pure function tick_y(bank: angle, distance: float) -> float {
+        return center - distance * cos(bank);
+    }
+
+    // distance of a pitch ladder line from the center, positive pitch lines are above the horizon
+    pure function ladder_offset(step: int) -> float {
+        return pitch_offset - step * pitch_scale;
+    }
+
+    // half length of a pitch ladder line, `length` relative to the inner radius,
+    // zero (nothing drawn) if the line is not completely inside the inner circle
+    pure function ladder_half(step: int, length: float) -> float {
+        return visible_half(ladder_offset(step), inner_radius * length);
+    }
+    pure function visible_half(offset: float, half_width: float) -> float {
+        return offset * offset + half_width * half_width < 0.9 * inner_radius * inner_radius ? half_width : 0;
+    }
+
+    // end points of a pitch ladder line, side is -1 for the left and 1 for the right end
+    // extra long lines (0.30) every 20 degree, long lines (0.20) every 10 degree,
+    // short lines (0.10) in between
+    pure function ladder_x(step: int, length: float, side: float) -> float {
+        return center + ladder_offset(step) * nx + side * ladder_half(step, length) * ux;
+    }
+    pure function ladder_y(step: int, length: float, side: float) -> float {
+        return center + ladder_offset(step) * ny + side * ladder_half(step, length) * uy;
+    }
+
+    background: transparent;    // show background of parent
+
+    // upper half outer ring: a circle border, clipped to the upper half
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: size;
+        height: size / 2;
+        clip: true;
+
+        Rectangle {
+            x: 0px;
+            y: 0px;
+            width: size;
+            height: size;
+            border-radius: size / 2;
+            border-width: outer_thickness;
+            border-color: Theme.sky;
+        }
+    }
+
+    // lower half outer ring: a circle border, clipped to the lower half
+    Rectangle {
+        x: 0px;
+        y: size / 2;
+        width: size;
+        height: size / 2;
+        clip: true;
+
+        Rectangle {
+            x: 0px;
+            y: -size / 2;
+            width: size;
+            height: size;
+            border-radius: size / 2;
+            border-width: outer_thickness;
+            border-color: Theme.ground;
+        }
+    }
+
+    // Bank ticks, in four paths with tight boxes: the ticks are static, and a box overlapping
+    // the moving inner disc would make them be redrawn every frame. Separate Tick components
+    // would be simpler, but each instance costs several KB of heap.
+
+    // top vertical line
+    Path {
+        // viewbox tight around the ticks (1 unit margin), the box is half a stroke width larger
+        // on each side, because the viewbox is fitted into the box minus the stroke width
+        viewbox-x: tick_x(0deg, center) - 1;
+        viewbox-y: tick_y(0deg, center) - 1;
+        viewbox-width: tick_x(0deg, inner_radius) - (tick_x(0deg, center)) + 2;
+        viewbox-height: tick_y(0deg, inner_radius) - (tick_y(0deg, center)) + 2;
+        x: self.viewbox-x * 1px - self.stroke-width / 2;
+        y: self.viewbox-y * 1px - self.stroke-width / 2;
+        width: self.viewbox-width * 1px + self.stroke-width;
+        height: self.viewbox-height * 1px + self.stroke-width;
+        stroke: Theme.marking;
+        stroke-width: Theme.marking_width;
+
+        MoveTo {
+            x: tick_x(0deg, center);
+            y: tick_y(0deg, center);
+        }
+
+        LineTo {
+            x: tick_x(0deg, inner_radius);
+            y: tick_y(0deg, inner_radius);
+        }
+    }
+
+    // banking lines at +/-10 and +/-20 degree
+    Path {
+        // viewbox tight around the ticks (1 unit margin), the box is half a stroke width larger
+        // on each side, because the viewbox is fitted into the box minus the stroke width
+        viewbox-x: tick_x(-20deg, center) - 1;
+        viewbox-y: tick_y(-10deg, center) - 1;
+        viewbox-width: tick_x(20deg, center) - (tick_x(-20deg, center)) + 2;
+        viewbox-height: tick_y(20deg, inner_radius) - (tick_y(-10deg, center)) + 2;
+        x: self.viewbox-x * 1px - self.stroke-width / 2;
+        y: self.viewbox-y * 1px - self.stroke-width / 2;
+        width: self.viewbox-width * 1px + self.stroke-width;
+        height: self.viewbox-height * 1px + self.stroke-width;
+        stroke: Theme.marking;
+        stroke-width: Theme.marking_width / 2;
+
+        MoveTo {
+            x: tick_x(-20deg, center);
+            y: tick_y(-20deg, center);
+        }
+
+        LineTo {
+            x: tick_x(-20deg, inner_radius);
+            y: tick_y(-20deg, inner_radius);
+        }
+
+        MoveTo {
+            x: tick_x(-10deg, center);
+            y: tick_y(-10deg, center);
+        }
+
+        LineTo {
+            x: tick_x(-10deg, inner_radius);
+            y: tick_y(-10deg, inner_radius);
+        }
+
+        MoveTo {
+            x: tick_x(10deg, center);
+            y: tick_y(10deg, center);
+        }
+
+        LineTo {
+            x: tick_x(10deg, inner_radius);
+            y: tick_y(10deg, inner_radius);
+        }
+
+        MoveTo {
+            x: tick_x(20deg, center);
+            y: tick_y(20deg, center);
+        }
+
+        LineTo {
+            x: tick_x(20deg, inner_radius);
+            y: tick_y(20deg, inner_radius);
+        }
+    }
+
+    // banking lines at -30 and -60 degree
+    Path {
+        // viewbox tight around the ticks (1 unit margin), the box is half a stroke width larger
+        // on each side, because the viewbox is fitted into the box minus the stroke width
+        viewbox-x: tick_x(-60deg, center) - 1;
+        viewbox-y: tick_y(-30deg, center) - 1;
+        viewbox-width: tick_x(-30deg, inner_radius) - (tick_x(-60deg, center)) + 2;
+        viewbox-height: tick_y(-60deg, inner_radius) - (tick_y(-30deg, center)) + 2;
+        x: self.viewbox-x * 1px - self.stroke-width / 2;
+        y: self.viewbox-y * 1px - self.stroke-width / 2;
+        width: self.viewbox-width * 1px + self.stroke-width;
+        height: self.viewbox-height * 1px + self.stroke-width;
+        stroke: Theme.marking;
+        stroke-width: Theme.marking_width;
+
+        MoveTo {
+            x: tick_x(-60deg, center);
+            y: tick_y(-60deg, center);
+        }
+
+        LineTo {
+            x: tick_x(-60deg, inner_radius);
+            y: tick_y(-60deg, inner_radius);
+        }
+
+        MoveTo {
+            x: tick_x(-30deg, center);
+            y: tick_y(-30deg, center);
+        }
+
+        LineTo {
+            x: tick_x(-30deg, inner_radius);
+            y: tick_y(-30deg, inner_radius);
+        }
+    }
+
+    // banking lines at +30 and +60 degree
+    Path {
+        // viewbox tight around the ticks (1 unit margin), the box is half a stroke width larger
+        // on each side, because the viewbox is fitted into the box minus the stroke width
+        viewbox-x: tick_x(30deg, inner_radius) - 1;
+        viewbox-y: tick_y(30deg, center) - 1;
+        viewbox-width: tick_x(60deg, center) - (tick_x(30deg, inner_radius)) + 2;
+        viewbox-height: tick_y(60deg, inner_radius) - (tick_y(30deg, center)) + 2;
+        x: self.viewbox-x * 1px - self.stroke-width / 2;
+        y: self.viewbox-y * 1px - self.stroke-width / 2;
+        width: self.viewbox-width * 1px + self.stroke-width;
+        height: self.viewbox-height * 1px + self.stroke-width;
+        stroke: Theme.marking;
+        stroke-width: Theme.marking_width;
+
+        MoveTo {
+            x: tick_x(30deg, center);
+            y: tick_y(30deg, center);
+        }
+
+        LineTo {
+            x: tick_x(30deg, inner_radius);
+            y: tick_y(30deg, inner_radius);
+        }
+
+        MoveTo {
+            x: tick_x(60deg, center);
+            y: tick_y(60deg, center);
+        }
+
+        LineTo {
+            x: tick_x(60deg, inner_radius);
+            y: tick_y(60deg, inner_radius);
+        }
+    }
+
+    // left horizontal line
+    Rectangle {
+        x: 0px;
+        y: (size - Theme.marking_width) / 2;
+        width: outer_thickness;
+        height: Theme.marking_width;
+        background: Theme.marking;
+    }
+
+    // right horizontal line
+    Rectangle {
+        x: size - outer_thickness;
+        y: (size - Theme.marking_width) / 2;
+        width: outer_thickness;
+        height: Theme.marking_width;
+        background: Theme.marking;
+    }
+
+    // inner part: sky as full disc
+    Rectangle {
+        x: outer_thickness;
+        y: outer_thickness;
+        width: size - 2 * outer_thickness;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: Theme.sky;
+    }
+
+    // inner part: ground below the horizon
+    // from the right end of the horizon clockwise around the bottom to the left end
+    // the arc is the larger one, when the horizon is above the center
+    Path {
+        x: outer_thickness;
+        y: outer_thickness;
+        width: size - 2 * outer_thickness;
+        height: self.width;
+        // box of the inner disc, coordinates stay the same as for the full size
+        viewbox-x: outer_thickness / 1px;
+        viewbox-y: outer_thickness / 1px;
+        viewbox-width: 2 * inner_radius;
+        viewbox-height: 2 * inner_radius;
+        fill: Theme.ground;
+
+        MoveTo {
+            x: left_x;
+            y: left_y;
+        }
+
+        LineTo {
+            x: right_x;
+            y: right_y;
+        }
+
+        ArcTo {
+            x: left_x;
+            y: left_y;
+            radius-x: inner_radius;
+            radius-y: inner_radius;
+            large-arc: horizon_offset < 0;
+            sweep: true;
+        }
+
+        Close { }
+    }
+
+    // inner part: horizon line
+    Path {
+        x: outer_thickness;
+        y: outer_thickness;
+        width: size - 2 * outer_thickness;
+        height: self.width;
+        // box of the inner disc, coordinates stay the same as for the full size
+        viewbox-x: outer_thickness / 1px;
+        viewbox-y: outer_thickness / 1px;
+        viewbox-width: 2 * inner_radius;
+        viewbox-height: 2 * inner_radius;
+        stroke: Theme.marking;
+        stroke-width: Theme.marking_width;
+
+        MoveTo {
+            x: left_x;
+            y: left_y;
+        }
+
+        LineTo {
+            x: right_x;
+            y: right_y;
+        }
+    }
+
+    // inner part: pitch ladder
+    Path {
+        x: outer_thickness;
+        y: outer_thickness;
+        width: size - 2 * outer_thickness;
+        height: self.width;
+        // box of the inner disc, coordinates stay the same as for the full size
+        viewbox-x: outer_thickness / 1px;
+        viewbox-y: outer_thickness / 1px;
+        viewbox-width: 2 * inner_radius;
+        viewbox-height: 2 * inner_radius;
+        stroke: Theme.marking;
+        stroke-width: Theme.marking_width / 2;
+
+        MoveTo {
+            x: ladder_x(-30, 0.20, -1);
+            y: ladder_y(-30, 0.20, -1);
+        }
+
+        LineTo {
+            x: ladder_x(-30, 0.20, 1);
+            y: ladder_y(-30, 0.20, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(-25, 0.10, -1);
+            y: ladder_y(-25, 0.10, -1);
+        }
+
+        LineTo {
+            x: ladder_x(-25, 0.10, 1);
+            y: ladder_y(-25, 0.10, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(-20, 0.30, -1);
+            y: ladder_y(-20, 0.30, -1);
+        }
+
+        LineTo {
+            x: ladder_x(-20, 0.30, 1);
+            y: ladder_y(-20, 0.30, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(-15, 0.10, -1);
+            y: ladder_y(-15, 0.10, -1);
+        }
+
+        LineTo {
+            x: ladder_x(-15, 0.10, 1);
+            y: ladder_y(-15, 0.10, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(-10, 0.20, -1);
+            y: ladder_y(-10, 0.20, -1);
+        }
+
+        LineTo {
+            x: ladder_x(-10, 0.20, 1);
+            y: ladder_y(-10, 0.20, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(-5, 0.10, -1);
+            y: ladder_y(-5, 0.10, -1);
+        }
+
+        LineTo {
+            x: ladder_x(-5, 0.10, 1);
+            y: ladder_y(-5, 0.10, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(5, 0.10, -1);
+            y: ladder_y(5, 0.10, -1);
+        }
+
+        LineTo {
+            x: ladder_x(5, 0.10, 1);
+            y: ladder_y(5, 0.10, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(10, 0.20, -1);
+            y: ladder_y(10, 0.20, -1);
+        }
+
+        LineTo {
+            x: ladder_x(10, 0.20, 1);
+            y: ladder_y(10, 0.20, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(15, 0.10, -1);
+            y: ladder_y(15, 0.10, -1);
+        }
+
+        LineTo {
+            x: ladder_x(15, 0.10, 1);
+            y: ladder_y(15, 0.10, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(20, 0.30, -1);
+            y: ladder_y(20, 0.30, -1);
+        }
+
+        LineTo {
+            x: ladder_x(20, 0.30, 1);
+            y: ladder_y(20, 0.30, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(25, 0.10, -1);
+            y: ladder_y(25, 0.10, -1);
+        }
+
+        LineTo {
+            x: ladder_x(25, 0.10, 1);
+            y: ladder_y(25, 0.10, 1);
+        }
+
+        MoveTo {
+            x: ladder_x(30, 0.20, -1);
+            y: ladder_y(30, 0.20, -1);
+        }
+
+        LineTo {
+            x: ladder_x(30, 0.20, 1);
+            y: ladder_y(30, 0.20, 1);
+        }
+    }
+
+    // bank pointer: triangle just inside the ring pointing at the bank scale
+    // turns against the roll, so it points to the current bank angle
+    Path {
+        x: outer_thickness;
+        y: outer_thickness;
+        width: size - 2 * outer_thickness;
+        height: self.width;
+        // box of the inner disc, coordinates stay the same as for the full size
+        viewbox-x: outer_thickness / 1px;
+        viewbox-y: outer_thickness / 1px;
+        viewbox-width: 2 * inner_radius;
+        viewbox-height: 2 * inner_radius;
+        fill: Theme.vehicle;
+
+        // distances from the center: tip touches the inner edge of the ring
+        property <float> tip: inner_radius;
+        property <float> base: center - outer_thickness * 1.5 / 1px;
+        property <float> half_base: outer_thickness / 3 / 1px;
+
+        // "up" rotated by -roll is -n, the base runs along u
+        MoveTo {
+            x: center - tip * nx;
+            y: center - tip * ny;
+        }
+
+        LineTo {
+            x: center - base * nx + half_base * ux;
+            y: center - base * ny + half_base * uy;
+        }
+
+        LineTo {
+            x: center - base * nx - half_base * ux;
+            y: center - base * ny - half_base * uy;
+        }
+
+        Close { }
+    }
+
+    // vehicle symbol: two horizontal lines with downward pointing inner ends
+    // drawn last so it stays on top of everything else
+    Path {
+        x: size * 0.2;
+        y: size * 0.48;
+        width: size * 0.6;
+        height: size * 0.1;
+        // box around the wings, coordinates stay the same as for the full size
+        viewbox-x: size_float * 0.2;
+        viewbox-y: size_float * 0.48;
+        viewbox-width: size_float * 0.6;
+        viewbox-height: size_float * 0.1;
+        stroke: Theme.vehicle;
+        stroke-width: Theme.vehicle_width;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+
+        // left wing
+        MoveTo {
+            x: size_float * 0.22;
+            y: size_float / 2;
+        }
+
+        LineTo {
+            x: size_float * 0.40;
+            y: size_float / 2;
+        }
+
+        LineTo {
+            x: size_float * 0.40;
+            y: size_float * 0.55;
+        }
+        // right wing
+        MoveTo {
+            x: size_float * 0.78;
+            y: size_float / 2;
+        }
+
+        LineTo {
+            x: size_float * 0.60;
+            y: size_float / 2;
+        }
+
+        LineTo {
+            x: size_float * 0.60;
+            y: size_float * 0.55;
+        }
+    }
+
+    // vehicle center dot
+    Rectangle {
+        x: (size - 2 * Theme.vehicle_width) / 2;
+        y: (size - 2 * Theme.vehicle_width) / 2;
+        width: 2 * Theme.vehicle_width;
+        height: 2 * Theme.vehicle_width;
+        border-radius: self.width / 2;
+        background: Theme.vehicle;
+    }
+}

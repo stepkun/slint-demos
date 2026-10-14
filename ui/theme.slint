@@ -1,0 +1,18 @@
+// Copyright © 2026 Stephan Kunz
+// SPDX-License-Identifier: GPL-3.0-only
+// Shared constants for all instruments
+
+export global Theme {
+    // colors
+    out property <color> background: #000000; // a full black
+    out property <color> menu: #111111;       // less than black
+    out property <color> sky: #1e64c8;        // medium blue
+    out property <color> ground: #8b5a2b;     // earth brown
+    out property <color> marking: #dddddd;    // a dimmed white
+    out property <color> vehicle: #e02020;    // red vehicle symbol
+
+    // dimensions
+    out property <float> ring_ratio: 10%;       // ring thickness relative to instrument size
+    out property <length> marking_width: 3px;
+    out property <length> vehicle_width: 3px;   // line width of the vehicle symbol
+}

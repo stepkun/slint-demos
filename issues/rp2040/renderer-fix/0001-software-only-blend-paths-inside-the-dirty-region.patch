@@ -1,0 +1,307 @@
+From e31fa8b050dd312dbdbb2678028bad517c3d8c25 Mon Sep 17 00:00:00 2001
+From: stepkun <stephan.kunz@kabelbw.de>
+Date: Tue, 13 Oct 2026 19:40:09 +0200
+Subject: [PATCH 1/2] software: only blend paths inside the dirty region
+
+With partial rendering (RepaintBufferType::ReusedBuffer), paths were
+blended with their coverage mask over the whole clip, also outside of the
+redrawn region where the buffer is not cleared. Their anti-aliased edges
+built up with every frame.
+
+Paths are now blended only into the non-overlapping parts of the dirty
+region inside the clip, like the other primitives of RenderToBuffer.
+
+The screenshot tests now also check partial rendering into a buffer, as
+they already did for line-by-line rendering (which doesn't draw paths).
+
+ChangeLog: software: Fixed paths drawn wrongly with partial rendering into a buffer
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ internal/renderers/software/lib.rs            | 23 ++++-
+ internal/renderers/software/path.rs           | 96 ++++++++++---------
+ .../window-radial-gradient-background.slint   |  1 +
+ tests/screenshots/software.rs                 | 41 ++++++++
+ 4 files changed, 113 insertions(+), 48 deletions(-)
+
+diff --git a/internal/renderers/software/lib.rs b/internal/renderers/software/lib.rs
+index 2c0bd49fbd..6925b332d5 100644
+--- a/internal/renderers/software/lib.rs
++++ b/internal/renderers/software/lib.rs
+@@ -2216,6 +2216,23 @@ fn foreach_ranges(
+         }
+     }
+ 
++    /// The parts of the dirty region inside `clip`, as non-overlapping rectangles.
++    /// Paths are blended with their coverage mask, so they must not be drawn outside of the
++    /// dirty region, where the buffer is not cleared, nor twice on overlapping rectangles.
++    #[cfg(feature = "path")]
++    fn path_clip_rects(&self, clip: &PhysicalRect) -> alloc::vec::Vec<PhysicalRect> {
++        self.dirty_region
++            .intersection(clip)
++            .iter()
++            .map(|(origin, size)| {
++                PhysicalRect::new(
++                    PhysicalPoint::new(origin.x as i16, origin.y as i16),
++                    PhysicalSize::new(size.width as i16, size.height as i16),
++                )
++            })
++            .collect()
++    }
++
+     fn process_texture_impl(&mut self, geometry: PhysicalRect, texture: SceneTexture<'_>) {
+         self.foreach_ranges(&geometry, |line, buffer, extra_left_clip, extra_right_clip| {
+             draw_functions::draw_texture_line(
+@@ -2328,7 +2345,8 @@ fn process_filled_path(
+         commands: alloc::vec::Vec<path::Command>,
+         color: PremultipliedRgbaColor,
+     ) {
+-        path::render_filled_path(&commands, &path_geometry, &clip_geometry, color, self.buffer);
++        let clip_rects = self.path_clip_rects(&clip_geometry);
++        path::render_filled_path(&commands, &path_geometry, &clip_rects, color, self.buffer);
+     }
+ 
+     #[cfg(feature = "path")]
+@@ -2340,10 +2358,11 @@ fn process_stroked_path(
+         color: PremultipliedRgbaColor,
+         stroke_style: path::StrokeStyle<'_>,
+     ) {
++        let clip_rects = self.path_clip_rects(&clip_geometry);
+         path::render_stroked_path(
+             &commands,
+             &path_geometry,
+-            &clip_geometry,
++            &clip_rects,
+             color,
+             stroke_style,
+             self.buffer,
+diff --git a/internal/renderers/software/path.rs b/internal/renderers/software/path.rs
+index 3a87dd9f0b..eac29d8f86 100644
+--- a/internal/renderers/software/path.rs
++++ b/internal/renderers/software/path.rs
+@@ -62,7 +62,7 @@ pub fn convert_path_data_to_zeno(
+ fn render_path_with_style<T: TargetPixel>(
+     commands: &[Command],
+     path_geometry: &PhysicalRect,
+-    clip_geometry: &PhysicalRect,
++    clip_rects: &[PhysicalRect],
+     color: PremultipliedRgbaColor,
+     style: zeno::Style,
+     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
+@@ -71,7 +71,7 @@ fn render_path_with_style<T: TargetPixel>(
+     let path_width = path_geometry.size.width as usize;
+     let path_height = path_geometry.size.height as usize;
+ 
+-    if path_width == 0 || path_height == 0 {
++    if path_width == 0 || path_height == 0 || clip_rects.is_empty() {
+         return;
+     }
+ 
+@@ -84,50 +84,52 @@ fn render_path_with_style<T: TargetPixel>(
+         .style(style)
+         .render_into(&mut mask_buffer, None);
+ 
+-    // Calculate the intersection region - only apply within clipped area
+-    // clip_geometry is relative to screen, path_geometry is also relative to screen
+-    let clip_x_start = clip_geometry.origin.x.max(0) as usize;
+-    let clip_y_start = clip_geometry.origin.y.max(0) as usize;
+-    let clip_x_end = (clip_geometry.max_x().max(0) as usize).min(buffer.line_slice(0).len());
+-    let clip_y_end = (clip_geometry.max_y().max(0) as usize).min(buffer.num_lines());
++    // Apply the mask only within the clip rectangles. They don't overlap, so no pixel is blended
++    // twice, and pixels outside of them (outside the dirty region) are left untouched.
++    // The rectangles are relative to screen, path_geometry is also relative to screen
++    for clip_geometry in clip_rects {
++        let clip_x_start = clip_geometry.origin.x.max(0) as usize;
++        let clip_y_start = clip_geometry.origin.y.max(0) as usize;
++        let clip_x_end = (clip_geometry.max_x().max(0) as usize).min(buffer.line_slice(0).len());
++        let clip_y_end = (clip_geometry.max_y().max(0) as usize).min(buffer.num_lines());
+ 
+-    let path_x_start = path_geometry.origin.x as isize;
+-    let path_y_start = path_geometry.origin.y as isize;
++        let path_x_start = path_geometry.origin.x as isize;
++        let path_y_start = path_geometry.origin.y as isize;
+ 
+-    // Apply the mask only within the clipped region
+-    for screen_y in clip_y_start..clip_y_end {
+-        let line = buffer.line_slice(screen_y);
++        for screen_y in clip_y_start..clip_y_end {
++            let line = buffer.line_slice(screen_y);
+ 
+-        // Calculate the y coordinate in the mask buffer
+-        let mask_y = screen_y as isize - path_y_start;
+-        if mask_y < 0 || mask_y >= path_height as isize {
+-            continue;
+-        }
+-
+-        // Iterate the writable portion of the line directly to avoid indexing by loop variable
+-        let line_slice = &mut line[clip_x_start..clip_x_end];
+-        for (i, pixel) in line_slice.iter_mut().enumerate() {
+-            let screen_x = clip_x_start + i;
+-
+-            // Calculate the x coordinate in the mask buffer
+-            let mask_x = screen_x as isize - path_x_start;
+-            if mask_x < 0 || mask_x >= path_width as isize {
++            // Calculate the y coordinate in the mask buffer
++            let mask_y = screen_y as isize - path_y_start;
++            if mask_y < 0 || mask_y >= path_height as isize {
+                 continue;
+             }
+ 
+-            let mask_idx = (mask_y as usize) * path_width + (mask_x as usize);
+-            let coverage = mask_buffer[mask_idx];
+-
+-            if coverage > 0 {
+-                // Scale all color components by coverage to maintain premultiplication
+-                let coverage_factor = coverage as u16;
+-                let alpha_color = PremultipliedRgbaColor {
+-                    red: ((color.red as u16 * coverage_factor) / 255) as u8,
+-                    green: ((color.green as u16 * coverage_factor) / 255) as u8,
+-                    blue: ((color.blue as u16 * coverage_factor) / 255) as u8,
+-                    alpha: ((color.alpha as u16 * coverage_factor) / 255) as u8,
+-                };
+-                T::blend(pixel, alpha_color);
++            // Iterate the writable portion of the line directly to avoid indexing by loop variable
++            let line_slice = &mut line[clip_x_start..clip_x_end];
++            for (i, pixel) in line_slice.iter_mut().enumerate() {
++                let screen_x = clip_x_start + i;
++
++                // Calculate the x coordinate in the mask buffer
++                let mask_x = screen_x as isize - path_x_start;
++                if mask_x < 0 || mask_x >= path_width as isize {
++                    continue;
++                }
++
++                let mask_idx = (mask_y as usize) * path_width + (mask_x as usize);
++                let coverage = mask_buffer[mask_idx];
++
++                if coverage > 0 {
++                    // Scale all color components by coverage to maintain premultiplication
++                    let coverage_factor = coverage as u16;
++                    let alpha_color = PremultipliedRgbaColor {
++                        red: ((color.red as u16 * coverage_factor) / 255) as u8,
++                        green: ((color.green as u16 * coverage_factor) / 255) as u8,
++                        blue: ((color.blue as u16 * coverage_factor) / 255) as u8,
++                        alpha: ((color.alpha as u16 * coverage_factor) / 255) as u8,
++                    };
++                    T::blend(pixel, alpha_color);
++                }
+             }
+         }
+     }
+@@ -137,20 +139,21 @@ fn render_path_with_style<T: TargetPixel>(
+ ///
+ /// * `commands` - The path commands to render
+ /// * `path_geometry` - The full bounding box of the path in screen coordinates
+-/// * `clip_geometry` - The clipped region where the path should be rendered (intersection of path and clip)
++/// * `clip_rects` - The non-overlapping regions where the path should be rendered
++///   (the parts of the dirty region inside the intersection of path and clip)
+ /// * `color` - The color to render the path
+ /// * `buffer` - The target pixel buffer
+ pub fn render_filled_path<T: TargetPixel>(
+     commands: &[Command],
+     path_geometry: &PhysicalRect,
+-    clip_geometry: &PhysicalRect,
++    clip_rects: &[PhysicalRect],
+     color: PremultipliedRgbaColor,
+     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
+ ) {
+     render_path_with_style(
+         commands,
+         path_geometry,
+-        clip_geometry,
++        clip_rects,
+         color,
+         zeno::Style::Fill(Fill::NonZero),
+         buffer,
+@@ -170,14 +173,15 @@ pub struct StrokeStyle<'a> {
+ ///
+ /// * `commands` - The path commands to render
+ /// * `path_geometry` - The full bounding box of the path in screen coordinates
+-/// * `clip_geometry` - The clipped region where the path should be rendered (intersection of path and clip)
++/// * `clip_rects` - The non-overlapping regions where the path should be rendered
++///   (the parts of the dirty region inside the intersection of path and clip)
+ /// * `color` - The color to render the path
+ /// * `stroke_width` - The width of the stroke
+ /// * `buffer` - The target pixel buffer
+ pub fn render_stroked_path<T: TargetPixel>(
+     commands: &[Command],
+     path_geometry: &PhysicalRect,
+-    clip_geometry: &PhysicalRect,
++    clip_rects: &[PhysicalRect],
+     color: PremultipliedRgbaColor,
+     stroke_style: StrokeStyle<'_>,
+     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
+@@ -198,5 +202,5 @@ pub fn render_stroked_path<T: TargetPixel>(
+         .dash(stroke_style.dash_array, stroke_style.dash_offset);
+ 
+     let style = Style::Stroke(stroke);
+-    render_path_with_style(commands, path_geometry, clip_geometry, color, style, buffer);
++    render_path_with_style(commands, path_geometry, clip_rects, color, style, buffer);
+ }
+diff --git a/tests/screenshots/cases/basic/window-radial-gradient-background.slint b/tests/screenshots/cases/basic/window-radial-gradient-background.slint
+index db2fd96743..dcd1b347e8 100644
+--- a/tests/screenshots/cases/basic/window-radial-gradient-background.slint
++++ b/tests/screenshots/cases/basic/window-radial-gradient-background.slint
+@@ -2,6 +2,7 @@
+ // SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+ 
+ // ROTATION_THRESHOLD=50  - because gradients are imprecise in rotation
++// BASE_THRESHOLD=2  - a radial gradient rendered in a clipped span (partial rendering) differs by 1
+ // SIZE=64x40
+ 
+ export component TestCase inherits Window {
+diff --git a/tests/screenshots/software.rs b/tests/screenshots/software.rs
+index 0952027d45..1e46427acc 100644
+--- a/tests/screenshots/software.rs
++++ b/tests/screenshots/software.rs
+@@ -115,6 +115,47 @@ pub fn assert_with_render(
+             panic!("Image comparison failure for {path} ({rotation:?}): {reason}");
+         }
+     }
++
++    // Render only a part of the frame again (as with RepaintBufferType::ReusedBuffer),
++    // the result must be exactly the same, also outside of the redrawn part
++    if !options.skip_clipping {
++        let rendering = screenshot_partial(window);
++        let argb8 = i_slint_core::graphics::Image::from_rgb8(rendering).to_rgba8().unwrap();
++        if let Err(reason) = compare_images(path, &argb8, RenderingRotation::NoRotation, options) {
++            panic!("Partial rendering image comparison failure for {path}: {reason}");
++        }
++    }
++}
++
++/// Renders the whole window, then fills the center with garbage and renders only the center again
++fn screenshot_partial(window: Rc<MinimalSoftwareWindow>) -> SharedPixelBuffer<Rgb8Pixel> {
++    let mut rendering = screenshot(window.clone(), RenderingRotation::NoRotation);
++    let s = window.size();
++    let sf = window.scale_factor();
++    let region: euclid::Rect<usize, euclid::UnknownUnit> =
++        euclid::rect(s.width / 4, s.height / 4, s.width / 2, s.height / 2).cast();
++    let stride = rendering.width() as usize;
++    for y in region.y_range() {
++        rendering.make_mut_slice()[y * stride..][region.x_range()].fill(Rgb8Pixel::new(
++            ((y << 3) & 0xff) as u8,
++            0,
++            255,
++        ));
++    }
++
++    window.request_redraw();
++    window.draw_if_needed(|renderer| {
++        renderer.mark_dirty_region(
++            LogicalRect::new(
++                euclid::point2(region.origin.x as f32 / sf, region.origin.y as f32 / sf),
++                euclid::size2(region.size.width as f32 / sf, region.size.height as f32 / sf),
++            )
++            .into(),
++        );
++        renderer.render(rendering.make_mut_slice(), stride);
++    });
++
++    rendering
+ }
+ 
+ /// Compares only the upright (non-rotated) render against `path`. Used by the default software
+-- 
+2.47.3
+

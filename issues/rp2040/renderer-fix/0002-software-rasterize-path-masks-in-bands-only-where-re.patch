@@ -1,0 +1,230 @@
+From 22b654f9276e60dd0013e399663fc377e6aa5776 Mon Sep 17 00:00:00 2001
+From: stepkun <stephan.kunz@kabelbw.de>
+Date: Tue, 13 Oct 2026 19:43:12 +0200
+Subject: [PATCH 2/2] software: rasterize path masks in bands, only where
+ redrawn
+
+render_path_with_style allocated a coverage mask for the whole path box
+(one byte per pixel) and rasterized all of it, even if only a small part
+of the path was redrawn. On microcontrollers this was often the largest
+single allocation.
+
+- Only the bounding box of the clip rectangles inside the path is
+  rasterized, in horizontal bands with a mask of at most 24 KB.
+- Strokes are converted to a filled outline once with zeno::apply, so the
+  bands don't stroke the path again.
+- The points are truncated to the 1/256 pixel grid of the rasterizer, so
+  moving them into a band is exact and the coverage is identical to
+  rasterizing the whole path at once.
+- The blend loop walks mask row and buffer line together and scales the
+  coverage without divisions ((v + (v >> 8) + 1) >> 8 equals v / 255 for
+  all products of two u8), which helps cores without hardware divider.
+
+ChangeLog: software: Paths need less memory and are faster with partial rendering
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ internal/renderers/software/path.rs | 166 +++++++++++++++++++---------
+ 1 file changed, 112 insertions(+), 54 deletions(-)
+
+diff --git a/internal/renderers/software/path.rs b/internal/renderers/software/path.rs
+index eac29d8f86..dfd0660dd2 100644
+--- a/internal/renderers/software/path.rs
++++ b/internal/renderers/software/path.rs
+@@ -59,6 +59,10 @@ pub fn convert_path_data_to_zeno(
+ }
+ 
+ /// Common rendering logic for both filled and stroked paths
++///
++/// Only the part of the path inside `clip_rects` is rasterized, in horizontal bands with a mask of
++/// at most `MAX_MASK_BYTES`. This bounds the memory needed (one byte per pixel of the path box
++/// before), which matters on microcontrollers, and skips rasterizing pixels that are not redrawn.
+ fn render_path_with_style<T: TargetPixel>(
+     commands: &[Command],
+     path_geometry: &PhysicalRect,
+@@ -67,74 +71,128 @@ fn render_path_with_style<T: TargetPixel>(
+     style: zeno::Style,
+     buffer: &mut impl crate::target_pixel_buffer::TargetPixelBuffer<TargetPixel = T>,
+ ) {
+-    // The mask needs to be rendered at the full path size
+-    let path_width = path_geometry.size.width as usize;
+-    let path_height = path_geometry.size.height as usize;
++    const MAX_MASK_BYTES: usize = 24 * 1024;
+ 
+-    if path_width == 0 || path_height == 0 || clip_rects.is_empty() {
++    let path_x = path_geometry.origin.x as i32;
++    let path_y = path_geometry.origin.y as i32;
++    let path_width = path_geometry.size.width as i32;
++    let path_height = path_geometry.size.height as i32;
++    if path_width <= 0 || path_height <= 0 || clip_rects.is_empty() {
+         return;
+     }
+ 
+-    // Create a buffer for the mask output
+-    let mut mask_buffer = vec![0u8; path_width * path_height];
+-
+-    // Render the full path into the mask
+-    Mask::new(commands)
+-        .size(path_width as u32, path_height as u32)
+-        .style(style)
+-        .render_into(&mut mask_buffer, None);
+-
+-    // Apply the mask only within the clip rectangles. They don't overlap, so no pixel is blended
+-    // twice, and pixels outside of them (outside the dirty region) are left untouched.
+-    // The rectangles are relative to screen, path_geometry is also relative to screen
+-    for clip_geometry in clip_rects {
+-        let clip_x_start = clip_geometry.origin.x.max(0) as usize;
+-        let clip_y_start = clip_geometry.origin.y.max(0) as usize;
+-        let clip_x_end = (clip_geometry.max_x().max(0) as usize).min(buffer.line_slice(0).len());
+-        let clip_y_end = (clip_geometry.max_y().max(0) as usize).min(buffer.num_lines());
+-
+-        let path_x_start = path_geometry.origin.x as isize;
+-        let path_y_start = path_geometry.origin.y as isize;
+-
+-        for screen_y in clip_y_start..clip_y_end {
+-            let line = buffer.line_slice(screen_y);
+-
+-            // Calculate the y coordinate in the mask buffer
+-            let mask_y = screen_y as isize - path_y_start;
+-            if mask_y < 0 || mask_y >= path_height as isize {
+-                continue;
++    // bounding box of the clip rectangles, inside the path and the buffer (screen coordinates)
++    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
++    for clip in clip_rects {
++        x0 = x0.min(clip.origin.x as i32);
++        y0 = y0.min(clip.origin.y as i32);
++        x1 = x1.max(clip.max_x() as i32);
++        y1 = y1.max(clip.max_y() as i32);
++    }
++    let x0 = x0.max(path_x).max(0);
++    let y0 = y0.max(path_y).max(0);
++    let x1 = x1.min(path_x + path_width).min(buffer.line_slice(0).len() as i32);
++    let y1 = y1.min(path_y + path_height).min(buffer.num_lines() as i32);
++    if x0 >= x1 || y0 >= y1 {
++        return;
++    }
++
++    // A stroke is converted to its outline once, so the bands only rasterize the filled outline
++    // instead of stroking the path again for every band.
++    // The points are truncated to the 1/256 pixel grid of the rasterizer (as its own fixed point
++    // conversion does), so that moving them into a band by whole pixels is exact: the bands give
++    // exactly the same coverage as rasterizing the whole path at once.
++    let mut outline = Vec::new();
++    let fill = match style {
++        Style::Stroke(_) => zeno::apply(commands, style, None, &mut outline),
++        Style::Fill(fill) => {
++            outline.extend_from_slice(commands);
++            fill
++        }
++    };
++    for command in &mut outline {
++        match command {
++            Command::MoveTo(p) | Command::LineTo(p) => *p = snap_to_raster_grid(*p),
++            Command::QuadTo(c, p) => {
++                *c = snap_to_raster_grid(*c);
++                *p = snap_to_raster_grid(*p);
+             }
++            Command::CurveTo(c1, c2, p) => {
++                *c1 = snap_to_raster_grid(*c1);
++                *c2 = snap_to_raster_grid(*c2);
++                *p = snap_to_raster_grid(*p);
++            }
++            Command::Close => {}
++        }
++    }
++    let (commands, style) = (outline.as_slice(), Style::Fill(fill));
+ 
+-            // Iterate the writable portion of the line directly to avoid indexing by loop variable
+-            let line_slice = &mut line[clip_x_start..clip_x_end];
+-            for (i, pixel) in line_slice.iter_mut().enumerate() {
+-                let screen_x = clip_x_start + i;
++    let width = (x1 - x0) as usize;
++    let band_height = (MAX_MASK_BYTES / width).clamp(1, (y1 - y0) as usize);
++    let mut mask_buffer = vec![0u8; width * band_height];
+ 
+-                // Calculate the x coordinate in the mask buffer
+-                let mask_x = screen_x as isize - path_x_start;
+-                if mask_x < 0 || mask_x >= path_width as isize {
+-                    continue;
+-                }
++    let mut band_y = y0;
++    while band_y < y1 {
++        let height = band_height.min((y1 - band_y) as usize);
++        let band = &mut mask_buffer[..width * height];
++        band.fill(0);
++
++        // Render the band of the path into the mask, the offset moves it to the band origin
++        Mask::new(commands)
++            .size(width as u32, height as u32)
++            .offset(zeno::Vector::new((path_x - x0) as f32, (path_y - band_y) as f32))
++            .style(style)
++            .render_into(band, None);
+ 
+-                let mask_idx = (mask_y as usize) * path_width + (mask_x as usize);
+-                let coverage = mask_buffer[mask_idx];
+-
+-                if coverage > 0 {
+-                    // Scale all color components by coverage to maintain premultiplication
+-                    let coverage_factor = coverage as u16;
+-                    let alpha_color = PremultipliedRgbaColor {
+-                        red: ((color.red as u16 * coverage_factor) / 255) as u8,
+-                        green: ((color.green as u16 * coverage_factor) / 255) as u8,
+-                        blue: ((color.blue as u16 * coverage_factor) / 255) as u8,
+-                        alpha: ((color.alpha as u16 * coverage_factor) / 255) as u8,
+-                    };
+-                    T::blend(pixel, alpha_color);
++        let band_end = band_y + height as i32;
++        for clip in clip_rects {
++            let cx0 = (clip.origin.x as i32).max(x0);
++            let cx1 = (clip.max_x() as i32).min(x1);
++            let cy0 = (clip.origin.y as i32).max(band_y);
++            let cy1 = (clip.max_y() as i32).min(band_end);
++            if cx0 >= cx1 || cy0 >= cy1 {
++                continue;
++            }
++            let row_width = (cx1 - cx0) as usize;
++            for y in cy0..cy1 {
++                let mask_row =
++                    &band[(y - band_y) as usize * width + (cx0 - x0) as usize..][..row_width];
++                let line = &mut buffer.line_slice(y as usize)[cx0 as usize..cx1 as usize];
++
++                for (pixel, &coverage) in line.iter_mut().zip(mask_row) {
++                    match coverage {
++                        0 => {}
++                        255 => T::blend(pixel, color),
++                        _ => {
++                            // Scale all color components by coverage to maintain premultiplication
++                            // (v + (v >> 8) + 1) >> 8 equals v / 255 for all products of two u8,
++                            // without a division, which is slow on MCUs like the Cortex-M0+
++                            let scale = |component: u8| {
++                                let v = component as u32 * coverage as u32;
++                                ((v + (v >> 8) + 1) >> 8) as u8
++                            };
++                            let alpha_color = PremultipliedRgbaColor {
++                                red: scale(color.red),
++                                green: scale(color.green),
++                                blue: scale(color.blue),
++                                alpha: scale(color.alpha),
++                            };
++                            T::blend(pixel, alpha_color);
++                        }
++                    }
+                 }
+             }
+         }
++
++        band_y = band_end;
+     }
+ }
+ 
++/// Truncates a point to the 1/256 pixel grid of zeno's rasterizer, like its fixed point conversion
++fn snap_to_raster_grid(p: zeno::Point) -> zeno::Point {
++    zeno::Point::new((p.x * 256.) as i32 as f32 / 256., (p.y * 256.) as i32 as f32 / 256.)
++}
++
+ /// Render a filled path
+ ///
+ /// * `commands` - The path commands to render
+-- 
+2.47.3
+

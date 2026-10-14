@@ -1,0 +1,21 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "slint-demos"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# the rp2040 uses the software renderer, Path elements need an extra feature there
+slint = { version = "1.18.1", features = ["software-renderer-path"] }
+
+[build-dependencies]
+slint-build = "1.18.1"
+
+[profile.release]
+codegen-units = 1
+lto = true
