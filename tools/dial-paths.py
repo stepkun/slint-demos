@@ -590,7 +590,9 @@ def altimeter():
     ]
     # 100 ft hand, the 1000 ft hand is shorter
     hands = [Hand(0.74, 0.66, 0.12, MARKING_WIDTH * 0.8)]
-    return Dial("ui/altimeter.slint", 0.79, hands, ticks)
+    # no bezel ring: the ticks reach almost to the edge, like `inner_radius` in
+    # ui/altimeter.slint (0.49 of the size)
+    return Dial("ui/altimeter.slint", 0.79, hands, ticks, ring_ratio=0.01)
 
 
 # airspeed scale: 0 to 40 kt on the first 30 degree, then 1.875 degree per kt
