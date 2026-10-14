@@ -125,11 +125,24 @@ class Dial:
     # boxes of hand-written static elements (Rectangle, Text), in units of the inner radius
     # from the center (x0, y0, x1, y1), checked against the rotor
     statics: list = field(default_factory=list)
+    # ring thickness relative to the size, Theme.ring_ratio unless the dial has no bezel ring
+    ring_ratio: float = RING_RATIO
+
+
+# ring ratio of the dial being generated (Dial.ring_ratio), set by use_dial()
+ring_ratio = RING_RATIO
+
+
+def use_dial(dial):
+    """sizes of the dial being generated: the inner radius follows its ring ratio"""
+    global ring_ratio, INNER_RADIUS
+    ring_ratio = dial.ring_ratio
+    INNER_RADIUS = SIZE * (0.5 - ring_ratio)
 
 
 def ratio(r):
     """distance relative to the inner radius -> relative to the instrument size"""
-    return (0.5 - RING_RATIO) * r
+    return (0.5 - ring_ratio) * r
 
 
 def tick_coefficients(tick, corner, axis):
@@ -616,7 +629,9 @@ def airspeed():
     ]
     marks = [Tick(airspeed_angle(V_NE), 0.92, 1.10, MARKING_WIDTH / 2, "Theme.limit")]
     hands = [Hand(0.74, 0.66, 0.12, MARKING_WIDTH * 0.8)]
-    return Dial("ui/airspeed.slint", 0.79, hands, ticks, arcs, marks)
+    # no bezel ring: the arcs (out to 1.10) end just inside the edge, like `inner_radius` in
+    # ui/airspeed.slint (0.45 of the size)
+    return Dial("ui/airspeed.slint", 0.79, hands, ticks, arcs, marks, ring_ratio=0.05)
 
 
 # vertical speed scale, like ui/vertical-speed.slint: 0 at 9 o'clock, climb clockwise, descent
@@ -737,6 +752,7 @@ def main():
         vertical_speed(),
         turn_coordinator(),
     ):
+        use_dial(dial)
         lines, report = generate(dial)
         print(report, file=sys.stderr)
         path = root / dial.file
