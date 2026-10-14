@@ -76,13 +76,13 @@ heap peak:                    58.6 KB (limit 92 KB)
   attitude:                   48.5 KB
   altimeter:                  54.4 KB
   airspeed:                   58.6 KB
-  heading:                    57.4 KB
-  vertical-speed:             52.9 KB
+  heading:                    58.0 KB
+  vertical-speed:             53.5 KB
   turn-coordinator:           49.8 KB
 largest allocation, start:     8.0 KB (path buffers of the renderer)
 largest allocation, frames:    5.6 KB (limit 8 KB)
 allocations, first frame:   1052
-allocations, later frames:  519.9 on average, 204 to 1452
+allocations, later frames:  524.5 on average, 204 to 1452
 redrawn rows per frame:     123.8 of 320 on average
 partial vs. full redraw, at the end of each instrument (limit 1 colour step):
   attitude:                 3 pixels differ, largest difference 1 colour steps
