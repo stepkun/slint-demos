@@ -55,13 +55,16 @@ cargo run --release                           # every instrument for 20 s, like 
 
 It runs 32-bit with the firmware's TLSF allocator, so sizes, allocator overhead (~20 %) and
 fragmentation match the device. The heap peak in the status line counts requested bytes only.
+A passing host check is not enough: the allocation order of the device differs, so keep room.
+The airspeed indicator crashed the device when the host check still passed in an 88 KB heap
+(4 KB to spare); with 83 KB (9 KB to spare) and the original 81 KB it runs.
 
 Without the hardware, the final check on the display is done by the maintainer. Say clearly
 what was only built or tested on the host.
 
 ## RP2040 constraints for `.slint` code
 
-The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which ~64 KB are requested at
+The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which ~60 KB are requested at
 peak, by the airspeed indicator in the host check, plus ~20 % TLSF overhead), no FPU and no
 divide instruction. The Slint software renderer (1.18.1) has no rotation or scaling transforms.
 
