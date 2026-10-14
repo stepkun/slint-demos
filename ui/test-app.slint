@@ -4,6 +4,7 @@
 
 
 import { Attitude } from "attitude.slint";
+import { Altimeter } from "altimeter.slint";
 import { Theme } from "theme.slint";
 // on MCUs there are no system fonts, so the font is embedded
 import "fonts/NotoSans-Regular.ttf";
@@ -13,6 +14,11 @@ export component AppWindow inherits Window {
     in property <angle> roll: 0deg;
     // pitch angle of the vehicle, positive is nose up
     in property <angle> pitch: 0deg;
+    // altitude in feet
+    in property <float> altitude: 0;
+    // shown instrument: 0 attitude indicator, 1 altimeter
+    // in-out, so the firmware can switch it while there is no touch input yet
+    in-out property <int> instrument: 0;
     // default is the resolution of the waveshare rp2040 ResTouch 2.8" display
     in property <length> screen_width: 320px;
     in property <length> screen_height: 240px;
@@ -48,6 +54,64 @@ export component AppWindow inherits Window {
                 font-size: 12px;
                 wrap: word-wrap;
             }
+
+            // instrument selector at the bottom of the menu area: two buttons side by side in
+            // portrait, stacked in landscape, large enough to be hit with a finger
+            // One frame, one highlight and one TouchArea for both buttons instead of a Rectangle
+            // and TouchArea per button: every element and binding costs heap on the RP2040.
+            Rectangle {
+                property <length> button_size: 36px;
+                // index of the touched button, from the position in the frame
+                property <int> touched: (root.portrait ? touch.pressed-x * 2 / self.width : touch.pressed-y * 2 / self.height) >= 1 ? 1 : 0;
+
+                x: 4px;
+                y: parent.height - self.height - 4px;
+                width: parent.width - 8px;
+                height: root.portrait ? self.button_size : 2 * self.button_size;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: Theme.marking;
+
+                // highlight of the selected button
+                Rectangle {
+                    x: root.portrait ? root.instrument * parent.width / 2 : 0;
+                    y: root.portrait ? 0 : root.instrument * parent.button_size;
+                    width: root.portrait ? parent.width / 2 : parent.width;
+                    height: parent.button_size;
+                    border-radius: 4px;
+                    background: Theme.selected;
+                }
+
+                Text {
+                    x: 0;
+                    y: 0;
+                    width: root.portrait ? parent.width / 2 : parent.width;
+                    height: parent.button_size;
+                    text: "ATT";
+                    color: Theme.marking;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    x: root.portrait ? parent.width / 2 : 0;
+                    y: root.portrait ? 0 : parent.button_size;
+                    width: root.portrait ? parent.width / 2 : parent.width;
+                    height: parent.button_size;
+                    text: "ALT";
+                    color: Theme.marking;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                touch := TouchArea {
+                    clicked => {
+                        root.instrument = parent.touched;
+                    }
+                }
+            }
         }
 
         // landscape: instrument area on the right, portrait: on top
@@ -58,9 +122,14 @@ export component AppWindow inherits Window {
             width: root.instrument_size;
             height: root.instrument_size;
 
-            Attitude {
+            // only the shown instrument exists, so only its elements take heap
+            if root.instrument == 0: Attitude {
                 roll: root.roll;
                 pitch: root.pitch;
+            }
+
+            if root.instrument == 1: Altimeter {
+                altitude: root.altitude;
             }
         }
     }

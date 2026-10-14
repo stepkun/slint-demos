@@ -8,7 +8,8 @@ The RP2040 is the target that matters: everything must work there.
 
 | Path | What |
 |---|---|
-| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `test-app.slint` (`AppWindow`) |
+| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `test-app.slint` (`AppWindow` with the instrument selector) |
+| `tools/altimeter-ticks.py` | Generates the tick paths of `ui/altimeter.slint` and checks they never overlap a hand box |
 | `src/main.rs` | Desktop app, uses the software renderer to show what the display will show |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws |

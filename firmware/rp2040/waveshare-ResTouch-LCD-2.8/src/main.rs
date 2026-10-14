@@ -311,6 +311,7 @@ async fn main(_spawner: Spawner) {
     let mut send_time = Duration::from_ticks(0);
 
     let mut backlight_night = false;
+    let mut shown_instrument = 0;
 
     loop {
         let frame_start = Instant::now();
@@ -318,6 +319,14 @@ async fn main(_spawner: Spawner) {
         // demo movement until real sensor values are available
         ui.set_roll(triangle(frame_start, Duration::from_secs(8), 30.0));
         ui.set_pitch(triangle(frame_start, Duration::from_secs(5), 10.0));
+        ui.set_altitude(5000.0 + triangle(frame_start, Duration::from_secs(60), 5000.0));
+        // demo: switch the instrument every 20 seconds, until the touch controller is used
+        // and the buttons in the menu area can be pressed
+        let instrument = (frame_start.as_secs() / 20 % 2) as i32;
+        if instrument != shown_instrument {
+            shown_instrument = instrument;
+            ui.set_instrument(instrument);
+        }
         // demo: night for 5 of every 15 seconds, until there is a switch or light sensor
         let night = frame_start.as_secs() % 15 >= 10;
 

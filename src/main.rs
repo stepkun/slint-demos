@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::error::Error;
+use std::time::{Duration, Instant};
 
 slint::include_modules!();
 
@@ -17,13 +18,37 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let ui = AppWindow::new()?;
 
-    // let ui_handle = ui.as_weak();
-    // ui.on_request_increase_value(move || {
-    //     let ui = ui_handle.unwrap();
-    //     ui.set_counter(ui.get_counter() + 1);
-    // });
+    // demo movement until real sensor values are available, the same as in the firmware
+    let start = Instant::now();
+    let ui_handle = ui.as_weak();
+    let timer = slint::Timer::default();
+    timer.start(
+        slint::TimerMode::Repeated,
+        Duration::from_millis(20),
+        move || {
+            let Some(ui) = ui_handle.upgrade() else {
+                return;
+            };
+            let time = start.elapsed();
+            ui.set_roll(triangle(time, Duration::from_secs(8), 30.0));
+            ui.set_pitch(triangle(time, Duration::from_secs(5), 10.0));
+            ui.set_altitude(5000.0 + triangle(time, Duration::from_secs(60), 5000.0));
+        },
+    );
 
     ui.run()?;
 
     Ok(())
+}
+
+/// Triangle wave between -amplitude and +amplitude with the given period
+fn triangle(time: Duration, period: Duration, amplitude: f32) -> f32 {
+    let period = period.as_millis();
+    let phase = (time.as_millis() % period) as f32 / period as f32;
+    let value = if phase < 0.5 {
+        phase * 4.0 - 1.0
+    } else {
+        3.0 - phase * 4.0
+    };
+    value * amplitude
 }
