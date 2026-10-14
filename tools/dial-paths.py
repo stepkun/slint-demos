@@ -606,13 +606,16 @@ def airspeed():
         )
         for kt in range(40, 201, 5)
     ]
-    # the arcs lie in the ring, inside the digits: white inside, green and yellow outside
+    # the arcs lie on the dial at the outer end of the ticks, which are drawn over them, like on
+    # a real indicator: white inside, green and yellow outside. The ring is left to the labels,
+    # three digits at the sides need its whole thickness. Nearer to the center the arcs are cut
+    # into more pieces, which costs heap: 0.93 to 1.0 needed 1.4 KB less, but hid the white arc.
     arcs = [
-        Arc(airspeed_angle(V_S0), airspeed_angle(V_FE), 1.0, 1.04, "Theme.marking", "white arc"),
-        Arc(airspeed_angle(V_S1), airspeed_angle(V_NO), 1.04, 1.10, "Theme.normal", "green arc"),
-        Arc(airspeed_angle(V_NO), airspeed_angle(V_NE), 1.04, 1.10, "Theme.caution", "yellow arc"),
+        Arc(airspeed_angle(V_S0), airspeed_angle(V_FE), 0.90, 0.94, "Theme.marking", "white arc"),
+        Arc(airspeed_angle(V_S1), airspeed_angle(V_NO), 0.94, 1.0, "Theme.normal", "green arc"),
+        Arc(airspeed_angle(V_NO), airspeed_angle(V_NE), 0.94, 1.0, "Theme.caution", "yellow arc"),
     ]
-    marks = [Tick(airspeed_angle(V_NE), 0.92, 1.10, MARKING_WIDTH / 2, "Theme.limit")]
+    marks = [Tick(airspeed_angle(V_NE), 0.85, 1.0, MARKING_WIDTH / 2, "Theme.limit")]
     hands = [Hand(0.74, 0.66, 0.12, MARKING_WIDTH * 0.8)]
     return Dial("ui/airspeed.slint", 0.79, hands, ticks, arcs, marks)
 
