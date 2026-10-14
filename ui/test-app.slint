@@ -50,6 +50,17 @@ export component AppWindow inherits Window {
     // the window fills the background, so no other element needs to
     background: Theme.background;
 
+    // instrument that exists: follows `instrument` in two steps, through -1 (see below);
+    // out, so tools/host-check can count the heap for the instrument that really exists
+    out property <int> shown: 0;
+    Timer {
+        interval: 1ms;
+        running: root.shown != root.instrument;
+        triggered => {
+            root.shown = root.shown < 0 ? root.instrument : -1;
+        }
+    }
+
     // the instrument is a square fitting the shorter screen side
     property <bool> portrait: root.screen_height > root.screen_width;
     property <length> instrument_size: min(root.screen_width, root.screen_height);
@@ -304,28 +315,33 @@ export component AppWindow inherits Window {
             height: root.instrument_size;
 
             // only the shown instrument exists, so only its elements take heap
-            if root.instrument == 0: Attitude {
+            // The `if`s are updated in the order they are written: switched to an instrument
+            // written above the shown one, the new one would be created before the old one is
+            // destroyed, and both together don't fit into the heap of the device (airspeed and
+            // altimeter: 65 KB requested). So the old one is removed first: `shown` is -1 for
+            // one frame, then the new instrument.
+            if root.shown == 0: Attitude {
                 roll: root.roll;
                 pitch: root.pitch;
             }
 
-            if root.instrument == 1: Altimeter {
+            if root.shown == 1: Altimeter {
                 altitude: root.altitude;
             }
 
-            if root.instrument == 2: Airspeed {
+            if root.shown == 2: Airspeed {
                 airspeed: root.airspeed;
             }
 
-            if root.instrument == 3: Heading {
+            if root.shown == 3: Heading {
                 heading: root.heading;
             }
 
-            if root.instrument == 4: VerticalSpeed {
+            if root.shown == 4: VerticalSpeed {
                 vertical_speed: root.vertical_speed;
             }
 
-            if root.instrument == 5: TurnCoordinator {
+            if root.shown == 5: TurnCoordinator {
                 turn_rate: root.turn_rate;
                 slip: root.slip;
             }

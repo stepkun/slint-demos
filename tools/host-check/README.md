@@ -30,6 +30,8 @@ Options:
 | `--frames N` | 2100 | Number of animated frames |
 | `--frame-ms MS` | 67 | Simulated time per frame (about 15 fps, like the firmware) |
 | `--instrument NAME` | all | Only `attitude`, `altimeter`, `airspeed`, `heading`, `vertical-speed` or `turn-coordinator`; by default each is shown for 20 s, like in the firmware demo, then the first one again |
+| `--random SEED` | – | Switch to a random other instrument every 1 to 10 s instead of the demo sequence, like tapping the buttons on the device. The same seed gives the same sequence |
+| `--heap-kb KB` | 92 | Size of the TLSF heap. The smallest size that still passes shows the room left for the differences to the device, see below |
 | `--system-alloc` | – | Only count the allocations, with the system allocator, instead of using the TLSF heap of the firmware |
 | `--png FILE` | – | Save the last partially redrawn frame as PNG |
 
@@ -100,7 +102,7 @@ The check fails if
 
 | Check | Limit | Why |
 |---|---|---|
-| TLSF heap runs out | 92 KB | `HEAP_SIZE` of the firmware. The heap peak shows the requested bytes, per instrument too (the frame that switches to an instrument, and so creates it, counts for it). The use including the TLSF overhead isn't shown: embedded-alloc 0.7 can only measure it by walking all blocks, and that never returns when built with Rust 1.99 for i686. Measured with Rust 1.97 it was about 76 KB with all instruments. |
+| TLSF heap runs out | 92 KB | `HEAP_SIZE` of the firmware. The heap peak shows the requested bytes, per instrument too (the peak of each frame counts for the instrument that exists in it, `shown` of the UI; the frame that creates an instrument counts for it). The use including the TLSF overhead isn't shown: embedded-alloc 0.7 can only measure it by walking all blocks, and that never returns when built with Rust 1.99 for i686. Measured with Rust 1.97 it was about 76 KB with all instruments. |
 | Heap peak | 92 KB | The requested bytes, mainly for `--system-alloc`. |
 | Largest allocation, frames | 8 KB | Allocations after the start. A large block, allocated again and again, may not be found any more once the heap is fragmented: that crashed the firmware with the airspeed indicator. The patched renderer allocates its path buffers (mask of at most 8 KB, `MAX_MASK_BYTES`, and 512 rasterizer cells) once at the start and keeps them; the largest of those is shown separately. |
 | Partial vs. full redraw | 1 colour step | After the last frame of each instrument the same state is rendered again from scratch (`RepaintBufferType::NewBuffer`) and compared per RGB565 channel. The banded path masks shift anti-aliased edges by one step, which is allowed. More means partial redraws leave artefacts, like the original 1.18.1 renderer does. |
@@ -112,6 +114,23 @@ out in the second frame. With `--system-alloc` it fails with a 36 KB mask block 
 pixels differing by more than one colour step between partial and full redraw.
 With the renderer before its path buffers were kept, the TLSF heap runs out at the switch from
 the airspeed indicator back to the attitude indicator (frame 896), as on the device.
+
+## Room left
+
+A pass in the 92 KB heap is not enough, the device allocates in a slightly different order.
+Find the smallest heap that still passes, for the demo sequence and for random switching:
+
+```sh
+B=target/i686-unknown-linux-gnu/release/host-check
+for kb in $(seq 92 -1 70); do $B --heap-kb $kb > /dev/null 2>&1 || { echo "fails at $kb KB"; break; }; done
+for kb in $(seq 92 -1 70); do $B --random 1 --frames 4500 --heap-kb $kb > /dev/null 2>&1 || { echo "random: fails at $kb KB"; break; }; done
+```
+
+The demo sequence passes down to 82 KB, random switching down to 83 KB, 9 KB to spare. The
+airspeed indicator crashed the device with 4 KB to spare. Random switching found a crash the
+demo sequence can't show: switched to an instrument written above the shown one in
+`ui/test-app.slint`, the new one was created before the old one was destroyed (89 KB needed).
+`test-app.slint` now removes the old one first.
 
 ## Differences to the device
 

@@ -56,8 +56,9 @@ cargo run --release                           # every instrument for 20 s, like 
 It runs 32-bit with the firmware's TLSF allocator, so sizes, allocator overhead (~20 %) and
 fragmentation match the device. The heap peak in the status line counts requested bytes only.
 A passing host check is not enough: the allocation order of the device differs, so keep room.
-The airspeed indicator crashed the device when the host check still passed in an 88 KB heap
-(4 KB to spare); with 83 KB (9 KB to spare) and the original 81 KB it runs.
+Find the smallest heap that passes with `--heap-kb`, for the demo sequence and for random
+switching (`--random SEED --frames 4500`), see `tools/host-check/README.md`. The airspeed
+indicator crashed the device with 4 KB to spare (88 KB); now both pass in 83 KB.
 
 Without the hardware, the final check on the display is done by the maintainer. Say clearly
 what was only built or tested on the host.
@@ -108,6 +109,9 @@ divide instruction. The Slint software renderer (1.18.1) has no rotation or scal
 - Use the colours, widths and font sizes from `Theme`, don't hard-code them. Widths and font
   sizes are those at `Theme.reference_size` (the display); the instruments multiply them by
   their `scale` (exactly 1 on the device), so they keep their proportions on the desktop.
+- **Only one instrument exists at a time.** `ui/test-app.slint` switches through
+  `shown = -1` for one frame: the `if`s are updated in the order they are written, so switched
+  to an instrument above the shown one, both would exist at once and not fit into the heap.
 - **Instruments are centred squares:** every part lies in one `Rectangle` of `size`, centred in
   the area the instrument is given, so the generated paths are indented one level deeper.
 
