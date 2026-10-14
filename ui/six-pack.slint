@@ -1,0 +1,99 @@
+// Copyright © 2026 Stephan Kunz
+// SPDX-License-Identifier: GPL-3.0-only
+// The six basic flight instruments in the standard layout, for the desktop app
+
+import { Attitude } from "attitude.slint";
+import { Altimeter } from "altimeter.slint";
+import { Airspeed } from "airspeed.slint";
+import { Heading } from "heading.slint";
+import { VerticalSpeed } from "vertical-speed.slint";
+import { TurnCoordinator } from "turn-coordinator.slint";
+import { Theme } from "theme.slint";
+// the same embedded font as on the device, so the desktop shows what the display shows
+import "fonts/NotoSans-Regular.ttf";
+
+export component SixPack inherits Window {
+    // bank angle of the vehicle, positive is a right bank
+    in property <angle> roll: 0deg;
+    // pitch angle of the vehicle, positive is nose up
+    in property <angle> pitch: 0deg;
+    // altitude in feet
+    in property <float> altitude: 0;
+    // indicated airspeed in knots
+    in property <float> airspeed: 0;
+    // magnetic heading, 0deg is north
+    in property <angle> heading: 0deg;
+    // vertical speed in feet per minute, positive is climbing
+    in property <float> vertical_speed: 0;
+    // rate of turn in degree per second, positive is a right turn
+    in property <float> turn_rate: 0;
+    // slip or skid, the position of the ball: -1 and 1 are the ends of the tube, positive right
+    in property <float> slip: 0;
+
+    title: "Instruments";
+    // each instrument at the size of the display of the device
+    preferred-width: 3 * 240px + 4 * root.gap;
+    preferred-height: 2 * 240px + 3 * root.gap;
+    default-font-family: "Noto Sans";
+    // the window fills the background, so no other element needs to
+    background: Theme.background;
+
+    // space between and around the instruments
+    property <length> gap: 8px;
+    // the instruments are square, as large as the window allows, the grid is centered
+    property <length> cell: min((root.width - 4 * root.gap) / 3, (root.height - 3 * root.gap) / 2);
+    property <length> left: (root.width - 3 * root.cell - 2 * root.gap) / 2;
+    property <length> top: (root.height - 2 * root.cell - root.gap) / 2;
+
+    // standard layout ("basic T"): upper row airspeed, attitude, altitude,
+    // lower row turn coordinator, heading, vertical speed
+    Airspeed {
+        x: root.left;
+        y: root.top;
+        width: root.cell;
+        height: root.cell;
+        airspeed: root.airspeed;
+    }
+
+    Attitude {
+        x: root.left + root.cell + root.gap;
+        y: root.top;
+        width: root.cell;
+        height: root.cell;
+        roll: root.roll;
+        pitch: root.pitch;
+    }
+
+    Altimeter {
+        x: root.left + 2 * (root.cell + root.gap);
+        y: root.top;
+        width: root.cell;
+        height: root.cell;
+        altitude: root.altitude;
+    }
+
+    TurnCoordinator {
+        x: root.left;
+        y: root.top + root.cell + root.gap;
+        width: root.cell;
+        height: root.cell;
+        turn_rate: root.turn_rate;
+        slip: root.slip;
+    }
+
+    Heading {
+        x: root.left + root.cell + root.gap;
+        y: root.top + root.cell + root.gap;
+        width: root.cell;
+        height: root.cell;
+        heading: root.heading;
+    }
+
+    VerticalSpeed {
+        x: root.left + 2 * (root.cell + root.gap);
+        y: root.top + root.cell + root.gap;
+        width: root.cell;
+        height: root.cell;
+        vertical_speed: root.vertical_speed;
+    }
+}

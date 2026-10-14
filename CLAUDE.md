@@ -1,16 +1,17 @@
 # CLAUDE.md
 
-Aircraft instruments built with Slint (1.18.1). The same `.slint` UI runs on the desktop and on
-a Raspberry Pi Pico W (RP2040) with a Waveshare Pico-ResTouch-LCD-2.8 (ST7789, 240x320).
+Aircraft instruments built with Slint (1.18.1). The same `.slint` instruments run on the desktop
+(all six at once) and on a Raspberry Pi Pico W (RP2040) with a Waveshare Pico-ResTouch-LCD-2.8
+(ST7789, 240x320, one instrument at a time with a menu).
 The RP2040 is the target that matters: everything must work there.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `vertical-speed.slint`, `turn-coordinator.slint`, `test-app.slint` (`AppWindow` with the instrument selector) |
+| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `vertical-speed.slint`, `turn-coordinator.slint`, `test-app.slint` (`AppWindow` of the device: one instrument and the menu with the selector), `six-pack.slint` (`SixPack` of the desktop app: all six in the standard layout) |
 | `tools/dial-paths.py` | Generates the static tick and arc paths of the instruments (between the `BEGIN`/`END generated` markers) and checks they never overlap a hand box; `--check` fails if a file is not up to date |
-| `src/main.rs` | Desktop app, uses the software renderer to show what the display will show |
+| `src/main.rs` | Desktop app with `SixPack`, uses the software renderer to show what the display will show |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
@@ -105,7 +106,7 @@ by the attitude indicator), no FPU and no divide instruction. The Slint software
   CS (GP22) must stay high.
 - Crash signals: backlight blinking = out of heap, dark = other panic.
 - The menu area has the status line (fps and heap peak in one line), the AUTO switch (instrument
-  sequence every 20 s, done by the firmware and the desktop app), the backlight slider (5-100 %,
+  sequence every 20 s, done by the firmware), the backlight slider (5-100 %,
   the firmware sets the PWM from the `brightness` property) and the instrument buttons.
 
 ## Conventions

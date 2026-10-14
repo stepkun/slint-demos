@@ -3,6 +3,7 @@
 // Build file or necessary steps before the src compile runs
 
 fn main() {
-    // build the slint artefacts
-    slint_build::compile("ui/test-app.slint").expect("Slint build failed");
+    // the desktop app shows all six instruments at once (the device shows one at a time,
+    // with ui/test-app.slint)
+    slint_build::compile("ui/six-pack.slint").expect("Slint build failed");
 }
