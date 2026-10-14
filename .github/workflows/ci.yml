@@ -17,6 +17,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # the static dial paths in ui/*.slint are generated, a changed generator or hand-edited
+  # paths must be regenerated, and no static box may overlap a hand
+  dial-paths:
+    name: generated dial paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: tools/dial-paths.py --check
+        if: hashFiles('tools/dial-paths.py') != ''
+        run: python3 tools/dial-paths.py --check
+
   check:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -26,7 +37,9 @@ jobs:
         include:
           - name: desktop app
             dir: .
-            system-packages: true
+            # std builds of Slint link against fontconfig, the desktop app also xkbcommon,
+            # wayland and xcb
+            packages: pkg-config libfontconfig-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev libxcb-xfixes0-dev
             build: cargo build --release
           - name: firmware
             dir: firmware/rp2040/waveshare-ResTouch-LCD-2.8
@@ -35,11 +48,14 @@ jobs:
             build: cargo build --release
           - name: host check
             dir: tools/host-check
+            # 32-bit like the RP2040, the target comes from .cargo/config.toml of the host check
+            target: i686-unknown-linux-gnu
+            packages: gcc-multilib
             build: cargo run --release -- --png last-frame.png
             artifact: last-frame.png
           - name: partial redraw repro
             dir: issues/rp2040/partial-redraw-path
-            system-packages: true
+            packages: pkg-config libfontconfig-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev libxcb-xfixes0-dev
             build: cargo build --release
     defaults:
       run:
@@ -59,15 +75,12 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # std builds of Slint link against fontconfig, the desktop app also xkbcommon, wayland, xcb
       - name: Install system packages
-        if: steps.crate.outputs.present == 'true' && matrix.system-packages
+        if: steps.crate.outputs.present == 'true' && matrix.packages
         working-directory: .
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libfontconfig-dev libxkbcommon-dev libwayland-dev \
-            libxcb-shape0-dev libxcb-xfixes0-dev
+          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }}
 
       - name: Install Rust
         if: steps.crate.outputs.present == 'true'

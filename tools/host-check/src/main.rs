@@ -6,7 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::process::ExitCode;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
 use slint::platform::software_renderer::{
@@ -18,17 +18,24 @@ slint::include_modules!();
 // the same display as in the firmware: 240x320 portrait
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
-// limits of the firmware: heap size, and the largest block the patched renderer
-// allocates for a path mask band (MAX_MASK_BYTES)
+// limits of the firmware: heap size, and the largest block that may be allocated: the mask of a
+// path band (MAX_MASK_BYTES of the patched renderer), which is allocated once at the start.
+// Larger blocks may not be found any more once the heap is fragmented.
 const HEAP_LIMIT: usize = 92 * 1024;
-const ALLOCATION_LIMIT: usize = 24 * 1024;
+const ALLOCATION_LIMIT: usize = 8 * 1024;
 // largest allowed difference per colour channel between partial and full redraw, in RGB565 steps
 // (the banded path masks shift anti-aliased edges by one step, see the firmware README)
 const COLOUR_TOLERANCE: u8 = 1;
 
+// the instruments of the selector in ui/test-app.slint, in the order of their `instrument` value
+const INSTRUMENTS: [&str; 3] = ["attitude", "altimeter", "airspeed"];
+// like the firmware demo, the instrument changes every 20 seconds
+const INSTRUMENT_MS: u64 = 20_000;
+
 // defaults of the simulated run: the firmware reaches about 15 fps,
-// 600 frames are 40 seconds, more than a full roll (8 s) and pitch (5 s) period
-const DEFAULT_FRAMES: u64 = 600;
+// 1000 frames are 67 seconds: each instrument for 20 seconds, then back to the first one,
+// more than a full roll (8 s), pitch (5 s) and half an altitude and airspeed period (60 s)
+const DEFAULT_FRAMES: u64 = 1000;
 const DEFAULT_FRAME_MS: u64 = 67;
 
 // heap bytes in use, the highest value, the largest single allocation and the number of
@@ -38,12 +45,60 @@ static HEAP_PEAK: AtomicUsize = AtomicUsize::new(0);
 static LARGEST_ALLOCATION: AtomicUsize = AtomicUsize::new(0);
 static ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 
+// on 32-bit builds the heap of the firmware: its TLSF allocator in a block of HEAP_LIMIT bytes,
+// so the overhead per block and the fragmentation are the same as on the device. Allocations
+// made before it is switched on, by the Rust runtime, stay with the system allocator.
+static TLSF: embedded_alloc::TlsfHeap = embedded_alloc::TlsfHeap::empty();
+static USE_TLSF: AtomicBool = AtomicBool::new(false);
+#[repr(align(8))]
+#[allow(dead_code)] // only used through a pointer
+struct Arena([u8; HEAP_LIMIT]);
+static mut ARENA: Arena = Arena([0; HEAP_LIMIT]);
+// highest use of the TLSF heap including its overhead (block headers, alignment), sampled
+// after every allocation
+static TLSF_PEAK: AtomicUsize = AtomicUsize::new(0);
+// frame being rendered and heap in use before the slint setup, for the out of memory report
+static FRAME: AtomicU64 = AtomicU64::new(0);
+static HEAP_BASE: AtomicUsize = AtomicUsize::new(0);
+
+/// Bytes of the TLSF heap in use including its overhead
+/// (`TlsfHeap::used()` of embedded-alloc 0.7 borrows its heap twice and panics)
+fn tlsf_used() -> usize {
+    HEAP_LIMIT - TLSF.free()
+}
+
+fn in_arena(ptr: *mut u8) -> bool {
+    let start = (&raw const ARENA) as usize;
+    (start..start + HEAP_LIMIT).contains(&(ptr as usize))
+}
+
 /// Global allocator that counts like the one of the firmware
 struct CountingAllocator;
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { System.alloc(layout) };
+        let ptr = if USE_TLSF.load(Relaxed) {
+            let ptr = unsafe { TLSF.alloc(layout) };
+            if !ptr.is_null() {
+                TLSF_PEAK.fetch_max(tlsf_used(), Relaxed);
+            } else {
+                // like the firmware this ends the run (the allocation error aborts), report
+                // first, without allocating
+                use std::io::Write;
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "FAIL: out of heap in frame {}: allocation of {} bytes, {} bytes requested and {} bytes with overhead in use, TLSF heap of {} KB",
+                    FRAME.load(Relaxed),
+                    layout.size(),
+                    HEAP_USED.load(Relaxed) - HEAP_BASE.load(Relaxed),
+                    tlsf_used(),
+                    HEAP_LIMIT / 1024
+                );
+            }
+            ptr
+        } else {
+            unsafe { System.alloc(layout) }
+        };
         if !ptr.is_null() {
             let used = HEAP_USED.fetch_add(layout.size(), Relaxed) + layout.size();
             HEAP_PEAK.fetch_max(used, Relaxed);
@@ -55,7 +110,11 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         HEAP_USED.fetch_sub(layout.size(), Relaxed);
-        unsafe { System.dealloc(ptr, layout) }
+        if in_arena(ptr) {
+            unsafe { TLSF.dealloc(ptr, layout) }
+        } else {
+            unsafe { System.dealloc(ptr, layout) }
+        }
     }
 }
 
@@ -86,20 +145,32 @@ impl slint::platform::Platform for Platform {
 struct Options {
     frames: u64,
     frame_ms: u64,
+    // only this instrument, instead of all one after the other
+    instrument: Option<usize>,
+    // allocate from the TLSF heap of the firmware instead of the system allocator
+    // (default on 32-bit builds, a 64-bit build doesn't fit into it)
+    tlsf: bool,
     png: Option<String>,
 }
 
 const USAGE: &str = "\
-usage: host-check [--frames N] [--frame-ms MS] [--png FILE]
+usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--system-alloc] [--png FILE]
 
-  --frames N     number of animated frames (default 600)
-  --frame-ms MS  simulated time per frame in ms (default 67, about 15 fps like the firmware)
-  --png FILE     save the last partially redrawn frame as PNG";
+  --frames N         number of animated frames (default 1000)
+  --frame-ms MS      simulated time per frame in ms (default 67, about 15 fps like the firmware)
+  --instrument NAME  only attitude, altimeter or airspeed (default: each for 20 s, like the
+                     firmware demo)
+  --system-alloc     only count the allocations, instead of allocating from the TLSF heap of
+                     the firmware (92 KB, the default on 32-bit builds like i686, which
+                     tools/host-check/.cargo/config.toml selects)
+  --png FILE         save the last partially redrawn frame as PNG";
 
 fn parse_options() -> Result<Options, String> {
     let mut options = Options {
         frames: DEFAULT_FRAMES,
         frame_ms: DEFAULT_FRAME_MS,
+        instrument: None,
+        tlsf: cfg!(target_pointer_width = "32"),
         png: None,
     };
     let mut args = std::env::args().skip(1);
@@ -112,6 +183,13 @@ fn parse_options() -> Result<Options, String> {
             "--frame-ms" => {
                 options.frame_ms = value()?.parse().map_err(|e| format!("--frame-ms: {e}"))?
             }
+            "--instrument" => {
+                let name = value()?;
+                let index = INSTRUMENTS.iter().position(|i| *i == name);
+                options.instrument =
+                    Some(index.ok_or(format!("--instrument: unknown instrument {name}"))?);
+            }
+            "--system-alloc" => options.tlsf = false,
             "--png" => options.png = Some(value()?),
             "-h" | "--help" => return Err(String::new()),
             _ => return Err(format!("unknown argument {arg}")),
@@ -140,6 +218,51 @@ fn channels(pixel: Rgb565BigEndianPixel) -> [u8; 3] {
     [(v >> 11) as u8, ((v >> 5) & 0x3f) as u8, (v & 0x1f) as u8]
 }
 
+/// Result of comparing the partially redrawn frame buffer with a fresh full render
+#[derive(Default)]
+struct Comparison {
+    differing_pixels: usize,
+    failing_pixels: usize,
+    largest_difference: u8,
+    first_failing: Option<(usize, usize)>,
+}
+
+/// Renders the current state again from scratch and compares it with the frame buffer,
+/// NewBuffer clears the renderer caches, so the next frame is a full redraw again
+fn compare_with_full_render(
+    window: &MinimalSoftwareWindow,
+    frame_buffer: &[Rgb565BigEndianPixel],
+    full_buffer: &mut [Rgb565BigEndianPixel],
+) -> Comparison {
+    window.request_redraw();
+    window.draw_if_needed(|renderer| {
+        renderer.set_repaint_buffer_type(RepaintBufferType::NewBuffer);
+        renderer.render(full_buffer, DISPLAY_WIDTH);
+        renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
+    });
+
+    let mut result = Comparison::default();
+    for (index, (partial, full)) in frame_buffer.iter().zip(full_buffer.iter()).enumerate() {
+        let difference = channels(*partial)
+            .iter()
+            .zip(channels(*full))
+            .map(|(a, b)| a.abs_diff(b))
+            .max()
+            .unwrap();
+        if difference > 0 {
+            result.differing_pixels += 1;
+            result.largest_difference = result.largest_difference.max(difference);
+        }
+        if difference > COLOUR_TOLERANCE {
+            result.failing_pixels += 1;
+            result
+                .first_failing
+                .get_or_insert((index % DISPLAY_WIDTH, index / DISPLAY_WIDTH));
+        }
+    }
+    result
+}
+
 fn save_png(path: &str, buffer: &[Rgb565BigEndianPixel]) -> Result<(), String> {
     let file = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
     let mut encoder = png::Encoder::new(
@@ -157,6 +280,23 @@ fn save_png(path: &str, buffer: &[Rgb565BigEndianPixel]) -> Result<(), String> {
         .write_header()
         .and_then(|mut writer| writer.write_image_data(&data))
         .map_err(|e| format!("{path}: {e}"))
+}
+
+/// The instrument shown in a frame
+fn instrument_at(options: &Options, frame: u64) -> usize {
+    let time_ms = frame * options.frame_ms;
+    options
+        .instrument
+        .unwrap_or((time_ms / INSTRUMENT_MS) as usize % INSTRUMENTS.len())
+}
+
+/// Takes the heap peak since the last call as the peak of an instrument (the highest one if it
+/// was shown before), and starts counting again
+fn finish_peak(instrument_peak: &mut Option<usize>, heap_peak: &mut usize, heap_base: usize) {
+    let peak = HEAP_PEAK.load(Relaxed) - heap_base;
+    *instrument_peak = Some(instrument_peak.unwrap_or(0).max(peak));
+    *heap_peak = (*heap_peak).max(peak);
+    HEAP_PEAK.store(HEAP_USED.load(Relaxed), Relaxed);
 }
 
 fn main() -> ExitCode {
@@ -177,14 +317,34 @@ fn main() -> ExitCode {
     let mut full_buffer =
         vec![Rgb565BigEndianPixel(0xf81fu16.to_be()); DISPLAY_WIDTH * DISPLAY_HEIGHT];
     let mut frame_allocations = Vec::with_capacity(options.frames as usize);
+    let mut comparisons: Vec<(usize, Comparison)> = Vec::with_capacity(options.frames as usize);
     // the first output allocates the stdout buffer, so it is done before counting starts too
     println!(
-        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms",
-        options.frames, options.frame_ms
+        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms, {}",
+        options.frames,
+        options.frame_ms,
+        if options.tlsf {
+            "TLSF heap of the firmware"
+        } else {
+            "system allocator"
+        }
     );
+    if cfg!(target_pointer_width = "64") {
+        println!(
+            "note: 64-bit build, the heap numbers are larger than on the device and the TLSF heap \
+             is not used, see README.md"
+        );
+    }
+
+    if options.tlsf {
+        // SAFETY: the arena is only used by the TLSF heap, which is initialized once
+        unsafe { TLSF.init((&raw mut ARENA) as usize, HEAP_LIMIT) };
+        USE_TLSF.store(true, Relaxed);
+    }
 
     // from here on the heap is counted, like in the firmware from the start
     let heap_base = HEAP_USED.load(Relaxed);
+    HEAP_BASE.store(heap_base, Relaxed);
     HEAP_PEAK.store(heap_base, Relaxed);
     LARGEST_ALLOCATION.store(0, Relaxed);
 
@@ -205,6 +365,13 @@ fn main() -> ExitCode {
     ui.show().unwrap();
     let setup_heap = HEAP_USED.load(Relaxed) - heap_base;
 
+    // heap peak and partial vs. full redraw per instrument, the frame that switches to an
+    // instrument counts for it, because it creates the instrument
+    let mut instrument_peaks = [None; INSTRUMENTS.len()];
+    let mut shown = options.instrument.unwrap_or(0);
+    ui.set_instrument(shown as i32);
+    let mut heap_peak = 0;
+
     // status line like in the firmware, updated once per simulated second
     let mut statistics_start = 0;
     let mut statistics_frames: u32 = 0;
@@ -213,12 +380,23 @@ fn main() -> ExitCode {
 
     for frame in 0..options.frames {
         let time_ms = frame * options.frame_ms;
+        FRAME.store(frame, Relaxed);
         SIMULATED_TIME_MS.store(time_ms, Relaxed);
         let allocations_before = ALLOCATIONS.load(Relaxed);
+
+        let instrument = instrument_at(&options, frame);
+        if instrument != shown {
+            // the peak of the instrument shown until now is finished
+            finish_peak(&mut instrument_peaks[shown], &mut heap_peak, heap_base);
+            shown = instrument;
+            ui.set_instrument(instrument as i32);
+        }
 
         // demo movement of the firmware
         ui.set_roll(triangle(time_ms, 8000, 30.0));
         ui.set_pitch(triangle(time_ms, 5000, 10.0));
+        ui.set_altitude(5000.0 + triangle(time_ms, 60_000, 5000.0));
+        ui.set_airspeed(105.0 + triangle(time_ms, 30_000, 75.0));
 
         slint::platform::update_timers_and_animations();
 
@@ -234,6 +412,19 @@ fn main() -> ExitCode {
             render_time += render_start.elapsed();
         }
 
+        // after the last frame of an instrument, while nothing has changed since rendering it,
+        // compare it with a fresh full render (its allocations are not counted)
+        if frame + 1 == options.frames || instrument_at(&options, frame + 1) != shown {
+            let peak = HEAP_PEAK.load(Relaxed);
+            let allocations = ALLOCATIONS.load(Relaxed);
+            comparisons.push((
+                shown,
+                compare_with_full_render(&window, &frame_buffer, &mut full_buffer),
+            ));
+            HEAP_PEAK.store(peak, Relaxed);
+            ALLOCATIONS.store(allocations, Relaxed);
+        }
+
         let elapsed_ms = time_ms - statistics_start;
         if elapsed_ms >= 1000 && statistics_frames > 0 {
             let fps = statistics_frames as f32 * 1000.0 / elapsed_ms as f32;
@@ -242,7 +433,7 @@ fn main() -> ExitCode {
                 fps,
                 render_time.as_millis() / statistics_frames as u128,
                 0,
-                (HEAP_PEAK.load(Relaxed) - heap_base) / 1024,
+                (HEAP_PEAK.load(Relaxed) - heap_base).max(heap_peak) / 1024,
                 HEAP_LIMIT / 1024,
             ));
             statistics_start = time_ms;
@@ -253,39 +444,12 @@ fn main() -> ExitCode {
         frame_allocations.push(ALLOCATIONS.load(Relaxed) - allocations_before);
     }
 
-    // results of the animated run, before the comparison allocates anything
-    let heap_peak = HEAP_PEAK.load(Relaxed) - heap_base;
+    // results of the animated run
+    finish_peak(&mut instrument_peaks[shown], &mut heap_peak, heap_base);
+    // the report and the PNG are not part of the firmware, they don't use its heap
+    USE_TLSF.store(false, Relaxed);
     let largest_allocation = LARGEST_ALLOCATION.load(Relaxed);
     let heap_end = HEAP_USED.load(Relaxed) - heap_base;
-
-    // fresh full render of the final state, NewBuffer clears the renderer caches
-    window.request_redraw();
-    window.draw_if_needed(|renderer| {
-        renderer.set_repaint_buffer_type(RepaintBufferType::NewBuffer);
-        renderer.render(&mut full_buffer, DISPLAY_WIDTH);
-        renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
-    });
-
-    let mut differing_pixels = 0usize;
-    let mut failing_pixels = 0usize;
-    let mut largest_difference = 0u8;
-    let mut first_failing = None;
-    for (index, (partial, full)) in frame_buffer.iter().zip(&full_buffer).enumerate() {
-        let difference = channels(*partial)
-            .iter()
-            .zip(channels(*full))
-            .map(|(a, b)| a.abs_diff(b))
-            .max()
-            .unwrap();
-        if difference > 0 {
-            differing_pixels += 1;
-            largest_difference = largest_difference.max(difference);
-        }
-        if difference > COLOUR_TOLERANCE {
-            failing_pixels += 1;
-            first_failing.get_or_insert((index % DISPLAY_WIDTH, index / DISPLAY_WIDTH));
-        }
-    }
 
     // report
     let kb = |bytes: usize| bytes as f32 / 1024.0;
@@ -298,6 +462,17 @@ fn main() -> ExitCode {
         kb(heap_peak),
         HEAP_LIMIT / 1024
     );
+    if options.tlsf {
+        println!(
+            "  with TLSF overhead:       {:6.1} KB (all instruments)",
+            kb(TLSF_PEAK.load(Relaxed))
+        );
+    }
+    for (name, peak) in INSTRUMENTS.iter().zip(instrument_peaks) {
+        if let Some(peak) = peak {
+            println!("  {:<25} {:6.1} KB", format!("{name}:"), kb(peak));
+        }
+    }
     println!(
         "largest single allocation:  {:6.1} KB (limit {} KB)",
         kb(largest_allocation),
@@ -315,8 +490,16 @@ fn main() -> ExitCode {
         redraw_rows as f32 / options.frames as f32
     );
     println!(
-        "partial vs. full redraw:    {differing_pixels} pixels differ, largest difference {largest_difference} colour steps (limit {COLOUR_TOLERANCE})"
+        "partial vs. full redraw, at the end of each instrument (limit {COLOUR_TOLERANCE} colour step):"
     );
+    for (instrument, comparison) in &comparisons {
+        println!(
+            "  {:<25} {} pixels differ, largest difference {} colour steps",
+            format!("{}:", INSTRUMENTS[*instrument]),
+            comparison.differing_pixels,
+            comparison.largest_difference
+        );
+    }
 
     let mut failed = false;
     if heap_peak > HEAP_LIMIT {
@@ -335,11 +518,14 @@ fn main() -> ExitCode {
         );
         failed = true;
     }
-    if let Some((x, y)) = first_failing {
-        println!(
-            "FAIL: {failing_pixels} pixels differ by more than {COLOUR_TOLERANCE} colour step between partial and full redraw, first at x {x}, y {y}"
-        );
-        failed = true;
+    for (instrument, comparison) in &comparisons {
+        if let Some((x, y)) = comparison.first_failing {
+            println!(
+                "FAIL: {}: {} pixels differ by more than {COLOUR_TOLERANCE} colour step between partial and full redraw, first at x {x}, y {y}",
+                INSTRUMENTS[*instrument], comparison.failing_pixels
+            );
+            failed = true;
+        }
     }
 
     if let Some(path) = &options.png {
