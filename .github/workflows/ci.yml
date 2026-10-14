@@ -26,6 +26,7 @@ jobs:
         include:
           - name: desktop app
             dir: .
+            system-packages: true
             build: cargo build --release
           - name: firmware
             dir: firmware/rp2040/waveshare-ResTouch-LCD-2.8
@@ -38,6 +39,7 @@ jobs:
             artifact: last-frame.png
           - name: partial redraw repro
             dir: issues/rp2040/partial-redraw-path
+            system-packages: true
             build: cargo build --release
     defaults:
       run:
@@ -57,9 +59,9 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # the desktop app links against fontconfig, xkbcommon, wayland and xcb
+      # std builds of Slint link against fontconfig, the desktop app also xkbcommon, wayland, xcb
       - name: Install system packages
-        if: steps.crate.outputs.present == 'true' && matrix.dir == '.'
+        if: steps.crate.outputs.present == 'true' && matrix.system-packages
         working-directory: .
         run: |
           sudo apt-get update
