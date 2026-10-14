@@ -51,7 +51,11 @@ jobs:
             build: cargo build --release
           - name: host check
             dir: tools/host-check
-            build: cargo run --release -- --png last-frame.png
+            # 32-bit like the RP2040, the target comes from .cargo/config.toml of the host check
+            target: i686-unknown-linux-gnu
+            packages: gcc-multilib
+            # built first, so a hang shows whether it is the build or the check itself
+            build: cargo build --release && timeout 300 cargo run --release -- --png last-frame.png
             artifact: last-frame.png
           - name: partial redraw repro
             dir: issues/rp2040/partial-redraw-path
