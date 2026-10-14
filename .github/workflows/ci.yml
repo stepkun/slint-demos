@@ -1,0 +1,103 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+# Builds and checks every crate of the repository, each has its own workspace and target dir
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# a newer push to the same branch or pull request makes the older run obsolete
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: desktop app
+            dir: .
+            build: cargo build --release
+          - name: firmware
+            dir: firmware/rp2040/waveshare-ResTouch-LCD-2.8
+            # the target thumbv6m-none-eabi comes from .cargo/config.toml of the firmware
+            target: thumbv6m-none-eabi
+            build: cargo build --release
+          - name: host check
+            dir: tools/host-check
+            build: cargo run --release -- --png last-frame.png
+            artifact: last-frame.png
+          - name: partial redraw repro
+            dir: issues/rp2040/partial-redraw-path
+            build: cargo build --release
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # tools/host-check is not on every branch
+      - name: Check that the crate exists
+        id: crate
+        working-directory: .
+        run: |
+          if [ -f "${{ matrix.dir }}/Cargo.toml" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::${{ matrix.dir }} not found, skipped"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # the desktop app links against fontconfig, xkbcommon, wayland and xcb
+      - name: Install system packages
+        if: steps.crate.outputs.present == 'true' && matrix.dir == '.'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig-dev libxkbcommon-dev libwayland-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev
+
+      - name: Install Rust
+        if: steps.crate.outputs.present == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+
+      # cargo registry and the crate's own target dir
+      - name: Cache
+        if: steps.crate.outputs.present == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ matrix.dir }} -> target
+          key: ${{ matrix.name }}
+
+      - name: cargo fmt --check
+        if: steps.crate.outputs.present == 'true'
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        if: steps.crate.outputs.present == 'true'
+        run: cargo clippy --release -- -D warnings
+
+      - name: Build
+        if: steps.crate.outputs.present == 'true'
+        run: ${{ matrix.build }}
+
+      - name: Upload the last frame
+        if: steps.crate.outputs.present == 'true' && matrix.artifact && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-check-last-frame
+          path: ${{ matrix.dir }}/${{ matrix.artifact }}
+          if-no-files-found: ignore
