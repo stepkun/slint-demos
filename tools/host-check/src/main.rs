@@ -29,21 +29,21 @@ const ALLOCATION_LIMIT: usize = 8 * 1024;
 const COLOUR_TOLERANCE: u8 = 1;
 
 // the instruments of the selector in ui/test-app.slint, in the order of their `instrument` value
-const INSTRUMENTS: [&str; 5] = [
+const INSTRUMENTS: [&str; 6] = [
     "attitude",
     "altimeter",
     "airspeed",
     "heading",
     "vertical-speed",
+    "turn-coordinator",
 ];
 // like the firmware demo, the instrument changes every 20 seconds
 const INSTRUMENT_MS: u64 = 20_000;
 
 // defaults of the simulated run: the firmware reaches about 15 fps,
-// 1550 frames are 104 seconds: each instrument for 20 seconds, then back to the first one,
-// more than a full roll (8 s), pitch (5 s), altitude (60 s), heading (60 s) and vertical speed
-// (40 s) period
-const DEFAULT_FRAMES: u64 = 1550;
+// 2100 frames are 141 seconds: each instrument for 20 seconds, then back to the first one,
+// more than a full period of every demo value (the longest are altitude and heading, 60 s)
+const DEFAULT_FRAMES: u64 = 2100;
 const DEFAULT_FRAME_MS: u64 = 67;
 
 // heap bytes in use, the highest value, the largest single allocation and the number of
@@ -157,10 +157,10 @@ struct Options {
 const USAGE: &str = "\
 usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--system-alloc] [--png FILE]
 
-  --frames N         number of animated frames (default 1550)
+  --frames N         number of animated frames (default 2100)
   --frame-ms MS      simulated time per frame in ms (default 67, about 15 fps like the firmware)
-  --instrument NAME  only attitude, altimeter, airspeed, heading or vertical-speed (default:
-                     each for 20 s, like the firmware demo)
+  --instrument NAME  only attitude, altimeter, airspeed, heading, vertical-speed or
+                     turn-coordinator (default: each for 20 s, like the firmware demo)
   --system-alloc     only count the allocations, instead of allocating from the TLSF heap of
                      the firmware (92 KB, the default on 32-bit builds like i686, which
                      tools/host-check/.cargo/config.toml selects)
@@ -402,6 +402,8 @@ fn main() -> ExitCode {
         ui.set_airspeed(105.0 + triangle(time_ms, 30_000, 75.0));
         ui.set_heading((time_ms % 60_000) as f32 * 0.006);
         ui.set_vertical_speed(triangle(time_ms, 40_000, 2200.0));
+        ui.set_turn_rate(triangle(time_ms, 30_000, 5.0));
+        ui.set_slip(triangle(time_ms, 12_000, 0.6));
 
         slint::platform::update_timers_and_animations();
 

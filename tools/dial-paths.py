@@ -95,6 +95,19 @@ class Shape:
 
 
 @dataclass
+class Rotor:
+    """a shape that turns around the center by up to +-max_angle (the aircraft symbol of the
+    turn coordinator), polygons in units of the inner radius from the center (y down)"""
+
+    name: str
+    color: str
+    polygons: list
+    max_angle: float  # degree
+    sin_name: str  # properties with the sine and cosine of the angle in the .slint file
+    cos_name: str
+
+
+@dataclass
 class Dial:
     file: str
     min_distance: float  # smallest distance of a static box from the center, rel. inner radius
@@ -107,6 +120,10 @@ class Dial:
     groups: list = None
     card: Card = None
     shapes: list = field(default_factory=list)
+    rotor: Rotor = None
+    # boxes of hand-written static elements (Rectangle, Text), in units of the inner radius
+    # from the center (x0, y0, x1, y1), checked against the rotor
+    statics: list = field(default_factory=list)
 
 
 def ratio(r):
@@ -358,6 +375,58 @@ def shape_path(shape):
     return out
 
 
+def rotor_half_extents(rotor):
+    """half width and half height of a symmetric box around the center that contains the
+    shape before it is turned (in units of the inner radius)"""
+    points = [p for polygon in rotor.polygons for p in polygon]
+    return max(abs(x) for x, _ in points), max(abs(y) for _, y in points)
+
+
+def rotor_box(rotor, angle):
+    """box in px at SIZE of the turned shape, the same formula as in the .slint file, with
+    the 1 unit margin of the viewbox"""
+    w, h = (INNER_RADIUS * e for e in rotor_half_extents(rotor))
+    a = math.radians(angle)
+    ex = w * abs(math.cos(a)) + h * abs(math.sin(a))
+    ey = w * abs(math.sin(a)) + h * abs(math.cos(a))
+    return CENTER - ex - 1, CENTER - ey - 1, CENTER + ex + 1, CENTER + ey + 1
+
+
+def rotor_path(rotor):
+    w, h = rotor_half_extents(rotor)
+    wx, hx = expression(ratio(w), 0), expression(ratio(h), 0)
+    s, c = rotor.sin_name, rotor.cos_name
+    # the box contains the turned box of the shape: half extents w * |cos| + h * |sin| and
+    # w * |sin| + h * |cos|, cheaper than the smallest box over all points (fewer reads)
+    out = [
+        f"    // {rotor.name}, turns with the {s}/{c} angle, its box follows it",
+        "    Path {",
+        f"        viewbox-x: center - ({wx}) * abs({c}) - ({hx}) * abs({s}) - 1;",
+        f"        viewbox-y: center - ({wx}) * abs({s}) - ({hx}) * abs({c}) - 1;",
+        f"        viewbox-width: 2 * (({wx}) * abs({c}) + ({hx}) * abs({s})) + 2;",
+        f"        viewbox-height: 2 * (({wx}) * abs({s}) + ({hx}) * abs({c})) + 2;",
+        "        x: self.viewbox-x * 1px;",
+        "        y: self.viewbox-y * 1px;",
+        "        width: self.viewbox-width * 1px;",
+        "        height: self.viewbox-height * 1px;",
+        f"        fill: {rotor.color};",
+    ]
+    for polygon in rotor.polygons:
+        for i, (x, y) in enumerate(polygon):
+            px, py = expression(ratio(x), 0), expression(ratio(y), 0)
+            # turned clockwise by the angle, written out (see the heading card)
+            out.append("")
+            out.append(f"        {'MoveTo' if i == 0 else 'LineTo'} {{")
+            out.append(f"            x: center + ({px}) * {c} - ({py}) * {s};")
+            out.append(f"            y: center + ({px}) * {s} + ({py}) * {c};")
+            out.append("        }")
+        out.append("")
+        out.append("        Close { }")
+    out.append("    }")
+    out.append("")
+    return out
+
+
 def arc_path(arc, start, end):
     out = [f"    // {arc.name}, {start:g}deg to {end:g}deg", "    Path {"]
     out += viewbox_lines(arc_extremes(arc, start, end))
@@ -440,12 +509,29 @@ def generate(dial):
     for shape in dial.shapes:
         out += shape_path(shape)
 
+    rotor_report = ""
+    if dial.rotor:
+        rotor = dial.rotor
+        statics = boxes + [box(shape_extremes(sh)) for sh in dial.shapes]
+        statics += [
+            (CENTER + x0 * INNER_RADIUS, CENTER + y0 * INNER_RADIUS,
+             CENTER + x1 * INNER_RADIUS, CENTER + y1 * INNER_RADIUS)
+            for x0, y0, x1, y1 in dial.statics
+        ]
+        steps = int(rotor.max_angle * 10)
+        for step in range(-steps, steps + 1):
+            if any(overlap(rotor_box(rotor, step / 10), b) for b in statics):
+                sys.exit(f"{dial.file}: {rotor.name} overlaps a static box at {step / 10} degree")
+        out += rotor_path(rotor)
+        rotor_report = f", {rotor.name}: no overlap up to +-{rotor.max_angle:g} degree"
+
     report = (
         f"{dial.file}: {len(arc_pieces)} arc paths, {len(tick_groups)} tick paths "
         f"{[len(g) for g in tick_groups]}, {len(dial.marks)} marks, "
         + ("no overlap with the hands" if dial.hands else "no hands to check")
         + card_report
         + (f", {len(dial.shapes)} shapes" if dial.shapes else "")
+        + rotor_report
     )
     return out, report
 
@@ -545,6 +631,37 @@ def vertical_speed():
     return Dial("ui/vertical-speed.slint", 0.79, hands, ticks)
 
 
+# turn coordinator: a standard rate turn (3 degree per second) banks the aircraft symbol by
+# 20 degree, onto the L and R marks; it stops at 6 degree per second (40 degree)
+TURN_STANDARD_BANK = 20
+TURN_MAX_BANK = 40
+
+
+def turn_coordinator():
+    w = MARKING_WIDTH / 2
+    # level marks at 9 and 3 o'clock, standard rate marks 20 degree below them
+    marks = [
+        Tick(a, 0.85, 1.0, w, "Theme.marking")
+        for a in (270, 90, 270 - TURN_STANDARD_BANK, 90 + TURN_STANDARD_BANK)
+    ]
+    # aircraft seen from behind: wings and a fin on top; the round fuselage is a Rectangle
+    # in the .slint file, it doesn't change when turned
+    aircraft = [
+        [(-0.70, -0.03), (0.70, -0.03), (0.70, 0.03), (-0.70, 0.03)],
+        [(-0.025, -0.22), (0.025, -0.22), (0.025, 0.0), (-0.025, 0.0)],
+    ]
+    rotor = Rotor(
+        "aircraft symbol", "Theme.marking", aircraft, TURN_MAX_BANK, "sin_bank", "cos_bank"
+    )
+    statics = [
+        # inclinometer tube with the ball, Rectangles in the .slint file
+        (-0.42, 0.66, 0.42, 0.80),
+        # "2 MIN" text below it
+        (-0.25, 0.81, 0.25, 0.99),
+    ]
+    return Dial("ui/turn-coordinator.slint", 0, [], marks=marks, rotor=rotor, statics=statics)
+
+
 def heading():
     # card ticks every 5 degree, long and wide ones every 10 degree
     ticks = [
@@ -598,7 +715,14 @@ def main():
     check = "--check" in sys.argv[1:]
     root = Path(__file__).resolve().parent.parent
     outdated = []
-    for dial in (attitude(), altimeter(), airspeed(), heading(), vertical_speed()):
+    for dial in (
+        attitude(),
+        altimeter(),
+        airspeed(),
+        heading(),
+        vertical_speed(),
+        turn_coordinator(),
+    ):
         lines, report = generate(dial)
         print(report, file=sys.stderr)
         path = root / dial.file

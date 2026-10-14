@@ -155,12 +155,14 @@ seconds.
 ## Instruments
 
 The menu area has buttons to select the instrument (attitude indicator, altimeter, airspeed
-indicator, heading indicator or vertical speed indicator). The touch controller isn't used yet,
+indicator, heading indicator, vertical speed indicator or turn coordinator). The touch controller isn't used yet,
 so the demo switches the instrument every 20 seconds instead. Only the selected instrument
 exists, so only its elements take heap. The altimeter shows a demo altitude going up and down
 between 0 and 10000 ft once a minute, the airspeed indicator a speed between 30 and 180 kt every
-30 seconds, the heading indicator a steady turn, once around per minute, and the vertical speed
-indicator a climb and descent of up to 2200 fpm every 40 seconds (the needle stops at 2100).
+30 seconds, the heading indicator a steady turn, once around per minute, the vertical speed
+indicator a climb and descent of up to 2200 fpm every 40 seconds (the needle stops at 2100), and
+the turn coordinator turns of up to 5 degree per second every 30 seconds (beyond the standard
+rate marks at 3 degree per second) with the ball swinging a little.
 
 The card of the heading indicator turns, so it is redrawn every frame, like the inner disc of
 the attitude indicator. Its labels stay upright, the software renderer can't rotate text.

@@ -8,7 +8,7 @@ The RP2040 is the target that matters: everything must work there.
 
 | Path | What |
 |---|---|
-| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `vertical-speed.slint`, `test-app.slint` (`AppWindow` with the instrument selector) |
+| `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `vertical-speed.slint`, `turn-coordinator.slint`, `test-app.slint` (`AppWindow` with the instrument selector) |
 | `tools/dial-paths.py` | Generates the static tick and arc paths of the instruments (between the `BEGIN`/`END generated` markers) and checks they never overlap a hand box; `--check` fails if a file is not up to date |
 | `src/main.rs` | Desktop app, uses the software renderer to show what the display will show |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
@@ -83,6 +83,9 @@ by the attitude indicator), no FPU and no divide instruction. The Slint software
 - **Keep per-frame blocks small.** A path whose elements change every frame (the turning card
   of the heading indicator) rebuilds its element list each frame; split it so these blocks stay
   small (~1-2 KB) and are still found in a fragmented heap.
+- **Moving Rectangles on whole pixels.** A round `Rectangle` at a fractional position draws
+  anti-aliased edge pixels outside its redrawn region, which keep old values (the ball of the
+  turn coordinator); `round()` its position and size.
 - **Moving parts get tight boxes that follow them,** and static paths are grouped so that their
   boxes never overlap a moving box (checked by `tools/dial-paths.py` for every hand angle).
 - **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts.

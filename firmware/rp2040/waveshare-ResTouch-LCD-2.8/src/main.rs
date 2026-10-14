@@ -325,9 +325,12 @@ async fn main(_spawner: Spawner) {
         ui.set_heading((frame_start.as_millis() % 60_000) as f32 * 0.006);
         // a little beyond the scale, so the needle reaches its stop
         ui.set_vertical_speed(triangle(frame_start, Duration::from_secs(40), 2200.0));
+        // turns beyond the standard rate (3 degree per second), the ball swinging a little
+        ui.set_turn_rate(triangle(frame_start, Duration::from_secs(30), 5.0));
+        ui.set_slip(triangle(frame_start, Duration::from_secs(12), 0.6));
         // demo: switch the instrument every 20 seconds, until the touch controller is used
         // and the buttons in the menu area can be pressed
-        let instrument = (frame_start.as_secs() / 20 % 5) as i32;
+        let instrument = (frame_start.as_secs() / 20 % 6) as i32;
         if instrument != shown_instrument {
             shown_instrument = instrument;
             ui.set_instrument(instrument);

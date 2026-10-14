@@ -38,6 +38,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             ui.set_heading((time.as_millis() % 60_000) as f32 * 0.006);
             // a little beyond the scale, so the needle reaches its stop
             ui.set_vertical_speed(triangle(time, Duration::from_secs(40), 2200.0));
+            // turns beyond the standard rate (3 degree per second), the ball swinging a little
+            ui.set_turn_rate(triangle(time, Duration::from_secs(30), 5.0));
+            ui.set_slip(triangle(time, Duration::from_secs(12), 0.6));
         },
     );
 
