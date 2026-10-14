@@ -77,7 +77,10 @@ unsafe impl GlobalAlloc for Allocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        HEAP_USED.store(HEAP_USED.load(Ordering::Relaxed) - layout.size(), Ordering::Relaxed);
+        HEAP_USED.store(
+            HEAP_USED.load(Ordering::Relaxed) - layout.size(),
+            Ordering::Relaxed,
+        );
         unsafe { HEAP.dealloc(ptr, layout) }
     }
 }
@@ -181,18 +184,31 @@ async fn send_rows(
     cs.borrow_mut().set_low();
     let last_column = (DISPLAY_WIDTH - 1) as u16;
     // column address set
-    command(spi, dc, 0x2a, &[0, 0, (last_column >> 8) as u8, last_column as u8]);
+    command(
+        spi,
+        dc,
+        0x2a,
+        &[0, 0, (last_column >> 8) as u8, last_column as u8],
+    );
     // row address set
     command(
         spi,
         dc,
         0x2b,
-        &[(first_row >> 8) as u8, first_row as u8, (last_row >> 8) as u8, last_row as u8],
+        &[
+            (first_row >> 8) as u8,
+            first_row as u8,
+            (last_row >> 8) as u8,
+            last_row as u8,
+        ],
     );
     // memory write, followed by the pixel data
     command(spi, dc, 0x2c, &[]);
     // a full frame takes about 12 ms at 100 MHz, a much longer time means the DMA hangs
-    if with_timeout(Duration::from_millis(500), spi.write(rows)).await.is_err() {
+    if with_timeout(Duration::from_millis(500), spi.write(rows))
+        .await
+        .is_err()
+    {
         panic!("DMA transfer to the display timed out");
     }
     cs.borrow_mut().set_high();
@@ -202,7 +218,11 @@ async fn send_rows(
 fn triangle(time: Instant, period: Duration, amplitude: f32) -> f32 {
     let period = period.as_millis();
     let phase = (time.as_millis() % period) as f32 / period as f32;
-    let value = if phase < 0.5 { phase * 4.0 - 1.0 } else { 3.0 - phase * 4.0 };
+    let value = if phase < 0.5 {
+        phase * 4.0 - 1.0
+    } else {
+        3.0 - phase * 4.0
+    };
     value * amplitude
 }
 
@@ -281,7 +301,8 @@ async fn main(_spawner: Spawner) {
     ui.show().unwrap();
 
     // SAFETY: the only reference to the frame buffer, created once
-    let frame_buffer: &mut [Rgb565BigEndianPixel] = unsafe { &mut *(&raw mut FRAME_BUFFER) };
+    let frame_buffer: &mut [Rgb565BigEndianPixel] =
+        unsafe { &mut *core::ptr::addr_of_mut!(FRAME_BUFFER) };
 
     // frame statistics, shown once per second in the menu area
     let mut statistics_start = Instant::now();
@@ -303,7 +324,11 @@ async fn main(_spawner: Spawner) {
         // at night the backlight is dimmed
         if night != backlight_night {
             backlight_night = night;
-            let brightness = if night { BRIGHTNESS_NIGHT } else { BRIGHTNESS_DAY };
+            let brightness = if night {
+                BRIGHTNESS_NIGHT
+            } else {
+                BRIGHTNESS_DAY
+            };
             let _ = backlight.set_duty_cycle_percent(brightness);
         }
 
@@ -323,9 +348,20 @@ async fn main(_spawner: Spawner) {
             let rows = &frame_buffer[first_row * DISPLAY_WIDTH..end_row * DISPLAY_WIDTH];
             // SAFETY: Rgb565BigEndianPixel is a plain u16 in display byte order
             let rows = unsafe {
-                core::slice::from_raw_parts(rows.as_ptr() as *const u8, core::mem::size_of_val(rows))
+                core::slice::from_raw_parts(
+                    rows.as_ptr() as *const u8,
+                    core::mem::size_of_val(rows),
+                )
             };
-            send_rows(spi, &mut lcd_dc, &lcd_cs, first_row as u16, (end_row - 1) as u16, rows).await;
+            send_rows(
+                spi,
+                &mut lcd_dc,
+                &lcd_cs,
+                first_row as u16,
+                (end_row - 1) as u16,
+                rows,
+            )
+            .await;
             frames += 1;
             render_time += render_end - frame_start;
             send_time += Instant::now() - render_end;

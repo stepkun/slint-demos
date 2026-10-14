@@ -16,5 +16,6 @@ fn main() {
     // build the slint artefacts from the shared ui, with resources embedded for the software renderer
     let config = slint_build::CompilerConfiguration::new()
         .embed_resources(slint_build::EmbedResourcesKind::EmbedForSoftwareRenderer);
-    slint_build::compile_with_config("../../../ui/test-app.slint", config).expect("Slint build failed");
+    slint_build::compile_with_config("../../../ui/test-app.slint", config)
+        .expect("Slint build failed");
 }

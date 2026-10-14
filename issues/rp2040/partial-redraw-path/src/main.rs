@@ -32,12 +32,14 @@ const H: usize = 100;
 
 thread_local! {
     // the window handed out to the next component
-    static NEXT_WINDOW: RefCell<Option<Rc<MinimalSoftwareWindow>>> = RefCell::new(None);
+    static NEXT_WINDOW: RefCell<Option<Rc<MinimalSoftwareWindow>>> = const { RefCell::new(None) };
 }
 
 struct Platform;
 impl slint::platform::Platform for Platform {
-    fn create_window_adapter(&self) -> Result<Rc<dyn slint::platform::WindowAdapter>, slint::PlatformError> {
+    fn create_window_adapter(
+        &self,
+    ) -> Result<Rc<dyn slint::platform::WindowAdapter>, slint::PlatformError> {
         Ok(NEXT_WINDOW.with(|w| w.borrow().clone()).unwrap())
     }
 }
@@ -66,12 +68,19 @@ fn main() {
     let differing: Vec<usize> = (0..H)
         .filter(|y| partial[y * W..(y + 1) * W] != full[y * W..(y + 1) * W])
         .collect();
-    println!("pixels differing: {}", partial.iter().zip(&full).filter(|(a, b)| a != b).count());
+    println!(
+        "pixels differing: {}",
+        partial.iter().zip(&full).filter(|(a, b)| a != b).count()
+    );
     println!("rows differing: {differing:?}");
     for (name, buf) in [("partial", &partial), ("full", &full)] {
         let mut out = format!("P6 {W} {H} 255\n").into_bytes();
         for p in buf.iter() {
-            out.extend([((p.0 >> 11) << 3) as u8, (((p.0 >> 5) & 0x3f) << 2) as u8, ((p.0 & 0x1f) << 3) as u8]);
+            out.extend([
+                ((p.0 >> 11) << 3) as u8,
+                (((p.0 >> 5) & 0x3f) << 2) as u8,
+                ((p.0 & 0x1f) << 3) as u8,
+            ]);
         }
         std::fs::write(format!("{name}.ppm"), out).unwrap();
     }
