@@ -67,7 +67,8 @@ what was only built or tested on the host.
 
 The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which 61 KB are requested at
 peak on the device when switching at random, 59 KB in the host check, plus ~20 % TLSF
-overhead), no FPU and no divide instruction. The Slint software renderer (1.18.1) has no rotation or scaling transforms.
+overhead), no FPU and no divide instruction. The Slint software renderer (1.18.1) has no
+rotation or scaling transforms.
 
 - **No transforms.** Rotated parts are calculated with `sin()`/`cos()`.
 - **Keep `Path` boxes small.** Each path is rasterized into a mask of 1 byte per pixel of its
