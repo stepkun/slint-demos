@@ -180,8 +180,9 @@ The touch controller is an XPT2046 on SPI1, shared with the display:
 - Each channel is converted 10 times in a row: the first 2 conversions are dropped while the
   voltages on the panel settle after its layers were switched, the middle half of the sorted
   other 8 is averaged against noise. (The first version alternated between x and y for every
-  sample; the corners measured with it didn't fit any mapping, they were up to 45 px off.
-  Unsettled readings are the likely cause, not yet confirmed on the device.)
+  sample and didn't check the pressure; the corners measured with it didn't fit any mapping,
+  they were up to 45 px off. With settled readings and the pressure check, five targets fit
+  within 2 px.)
 - A light touch gives readings pulled towards the middle of the panel: touches with a pressure
   value (Z1 + 4095 − Z2) below 350 are ignored, like common XPT2046 drivers do. A touch that ends
   while sampling is ignored too.
@@ -202,8 +203,9 @@ y = D * raw_x + E * raw_y + F
 ```
 
 `TOUCH_CALIBRATION` in `src/main.rs` holds `[A, B, C, D, E, F]`. The current values are fitted to
-four corners touched on the device before the readings were settled and pressure checked, so
-they may be off. To calibrate:
+the five targets below, touched on the device: all of them are within 2 px. The panel is
+mirrored on both axes, not rotated (B and D are almost 0). To calibrate again, for example for
+another board:
 
 1. Set `SHOW_TOUCH = true` and flash. The menu area then shows a second line with the last
    touch: `touch raw 1234, 2345 z 900 at 120, 300` (raw x, raw y, pressure, mapped position).

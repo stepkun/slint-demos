@@ -53,10 +53,9 @@ const TOUCH_SAMPLES: usize = 8;
 const TOUCH_MIN_PRESSURE: i32 = 350;
 // raw touch values (12 bit) to display position, affine, so it can also correct a rotated or
 // skewed panel: x = A * raw_x + B * raw_y + C, y = D * raw_x + E * raw_y + F.
-// The values are fitted to four corners touched on the device (before the touch readings were
-// settled and pressure checked, so they may be off); measure again with SHOW_TOUCH and
-// tools/touch-calibration.py, see the README
-const TOUCH_CALIBRATION: [f32; 6] = [-0.09969, -0.02433, 348.32, -0.02307, -0.12720, 463.71];
+// Fitted with tools/touch-calibration.py to five targets touched on the device (all within 2 px);
+// the panel is mirrored on both axes, not rotated. To calibrate again, see the README.
+const TOUCH_CALIBRATION: [f32; 6] = [-0.06518, 0.00011, 253.63, 0.00043, -0.08898, 349.34];
 // shows the last raw and mapped touch position in the menu area, for the calibration
 const SHOW_TOUCH: bool = false;
 // shortest time per frame, limits the frame rate to 50 per second
