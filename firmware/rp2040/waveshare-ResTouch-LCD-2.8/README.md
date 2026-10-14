@@ -175,9 +175,16 @@ the attitude indicator. Its labels stay upright, the software renderer can't rot
 The touch controller is an XPT2046 on SPI1, shared with the display:
 
 - Once per frame, before rendering, the firmware checks the touch interrupt (GP17). Only while
-  it is low (touched), it switches SPI1 to 2 MHz (the limit of the XPT2046), reads 8 samples of
-  each axis without DMA, and switches back to the display clock. The middle half of the sorted
-  samples is averaged against noise. A touch that ends while sampling is ignored.
+  it is low (touched), it switches SPI1 to 2 MHz (the limit of the XPT2046), reads the pressure
+  and both axes without DMA, and switches back to the display clock.
+- Each channel is converted 10 times in a row: the first 2 conversions are dropped while the
+  voltages on the panel settle after its layers were switched, the middle half of the sorted
+  other 8 is averaged against noise. (The first version alternated between x and y for every
+  sample; the corners measured with it didn't fit any mapping, they were up to 45 px off.
+  Unsettled readings are the likely cause, not yet confirmed on the device.)
+- A light touch gives readings pulled towards the middle of the panel: touches with a pressure
+  value (Z1 + 4095 − Z2) below 350 are ignored, like common XPT2046 drivers do. A touch that ends
+  while sampling is ignored too.
 - The touch is passed to Slint as pointer events of the left button: pressed where the touch
   starts, moved while it lasts, released where it ends. A tap on a button in the menu area is a
   click on its `TouchArea`.
@@ -186,23 +193,41 @@ The touch controller is an XPT2046 on SPI1, shared with the display:
 
 ### Calibration
 
-The raw values (12 bit) are mapped linearly to the display, with the raw values at its edges in
-`src/main.rs`:
+The raw values (12 bit) are mapped to the display with an affine mapping, so a rotated or
+skewed panel is corrected too:
 
-| Constant | Value | Meaning |
-|---|---|---|
-| `TOUCH_RAW_LEFT`, `TOUCH_RAW_RIGHT` | 234, 2910 | raw x at the left and right edge |
-| `TOUCH_RAW_TOP`, `TOUCH_RAW_BOTTOM` | 289, 2663 | raw y at the top and bottom edge |
-| `TOUCH_SWAP_XY` | false | swap the raw axes |
+```
+x = A * raw_x + B * raw_y + C
+y = D * raw_x + E * raw_y + F
+```
 
-The values come from the Waveshare demo code for this board in portrait and are not checked on
-the device yet. If taps land in the wrong place:
+`TOUCH_CALIBRATION` in `src/main.rs` holds `[A, B, C, D, E, F]`. The current values are fitted to
+four corners touched on the device before the readings were settled and pressure checked, so
+they may be off. To calibrate:
 
 1. Set `SHOW_TOUCH = true` and flash. The menu area then shows a second line with the last
-   touch: `touch raw 1234, 2345 at 120, 300` (raw x, raw y, and the mapped position).
-2. Touch near the four edges and note the raw values.
-3. Enter them as the edge values. If raw x changes when moving up and down, set
-   `TOUCH_SWAP_XY`. If an axis is mirrored, swap its two edge values (left > right is fine).
+   touch: `touch raw 1234, 2345 z 900 at 120, 300` (raw x, raw y, pressure, mapped position).
+2. Select the altimeter and touch these targets firmly, noting the raw values of each:
+
+   | Target | Position (x, y) |
+   |---|---|
+   | digit 0 of the altimeter, top | 120, 12 |
+   | digit 3 of the altimeter, right | 223, 153 |
+   | digit 7 of the altimeter, left | 17, 153 |
+   | button ATT, center | 23, 298 |
+   | button TC, center | 217, 298 |
+
+   Targets inside the display are better than the corners: they are easier to hit exactly, and
+   a resistive panel is least accurate at its edges.
+3. Fit the mapping and copy the printed constant into `src/main.rs`:
+
+   ```sh
+   python3 tools/touch-calibration.py 120,12=RAW_X,RAW_Y 223,153=RAW_X,RAW_Y \
+       17,153=RAW_X,RAW_Y 23,298=RAW_X,RAW_Y 217,298=RAW_X,RAW_Y
+   ```
+
+   It also prints how far each target is off with the fitted mapping; more than a few pixels
+   means a reading was wrong, measure that target again.
 
 ## Crash signals
 

@@ -12,6 +12,7 @@ The RP2040 is the target that matters: everything must work there.
 | `tools/dial-paths.py` | Generates the static tick and arc paths of the instruments (between the `BEGIN`/`END generated` markers) and checks they never overlap a hand box; `--check` fails if a file is not up to date |
 | `src/main.rs` | Desktop app, uses the software renderer to show what the display will show |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
+| `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
 
@@ -99,8 +100,9 @@ by the attitude indicator), no FPU and no divide instruction. The Slint software
   Don't remove the `[patch.crates-io]` entries.
 - Chip select must be toggled for each transfer (shared SPI1 with the touch controller).
 - Touch: XPT2046 on SPI1 (CS GP16, interrupt GP17, MISO GP12), read at 2 MHz only while touched,
-  passed to Slint as pointer events. Calibration constants and `SHOW_TOUCH` in `src/main.rs`,
-  see the firmware README. The microSD CS (GP22) must stay high.
+  passed to Slint as pointer events. Affine calibration `TOUCH_CALIBRATION` and `SHOW_TOUCH` in
+  `src/main.rs`, fitted with `tools/touch-calibration.py`, see the firmware README. The microSD
+  CS (GP22) must stay high.
 - Crash signals: backlight blinking = out of heap, dark = other panic.
 - The status line in the menu area shows fps and heap peak in one line.
 

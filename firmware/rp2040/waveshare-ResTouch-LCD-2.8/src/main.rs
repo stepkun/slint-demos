@@ -44,16 +44,19 @@ const DISPLAY_HEIGHT: usize = 320;
 const DISPLAY_SPI_FREQUENCY: u32 = 100_000_000;
 // the XPT2046 touch controller shares SPI1, it is read at 2 MHz (its maximum clock)
 const TOUCH_SPI_FREQUENCY: u32 = 2_000_000;
-// samples per touch reading, the middle half of them is averaged against noise
+// conversions per axis: the first ones are dropped while the voltages on the panel settle after
+// its layers were switched, the middle half of the rest is averaged against noise
+const TOUCH_SETTLE: usize = 2;
 const TOUCH_SAMPLES: usize = 8;
-// raw touch values (12 bit) at the edges of the display, from the Waveshare demo code for this
-// board in portrait; if touches land in the wrong place, set SHOW_TOUCH, touch the corners and
-// take the raw values shown in the menu area (swap the axes with TOUCH_SWAP_XY if needed)
-const TOUCH_SWAP_XY: bool = false;
-const TOUCH_RAW_LEFT: i32 = 234;
-const TOUCH_RAW_RIGHT: i32 = 2910;
-const TOUCH_RAW_TOP: i32 = 289;
-const TOUCH_RAW_BOTTOM: i32 = 2663;
+// a light touch gives readings pulled towards the middle of the panel, touches with a lower
+// pressure value (Z1 + 4095 - Z2, the threshold common XPT2046 drivers use) are ignored
+const TOUCH_MIN_PRESSURE: i32 = 350;
+// raw touch values (12 bit) to display position, affine, so it can also correct a rotated or
+// skewed panel: x = A * raw_x + B * raw_y + C, y = D * raw_x + E * raw_y + F.
+// The values are fitted to four corners touched on the device (before the touch readings were
+// settled and pressure checked, so they may be off); measure again with SHOW_TOUCH and
+// tools/touch-calibration.py, see the README
+const TOUCH_CALIBRATION: [f32; 6] = [-0.09969, -0.02433, 348.32, -0.02307, -0.12720, 463.71];
 // shows the last raw and mapped touch position in the menu area, for the calibration
 const SHOW_TOUCH: bool = false;
 // shortest time per frame, limits the frame rate to 50 per second
@@ -242,50 +245,56 @@ fn touch_channel(spi: &mut Spi<'_, SPI1, Async>, command: u8) -> u16 {
     (u16::from(answer[1]) << 8 | u16::from(answer[2])) >> 3
 }
 
-/// Average of the middle half of the samples, outliers from a bouncing touch are dropped
-fn touch_average(samples: &mut [u16; TOUCH_SAMPLES]) -> i32 {
+/// One channel, converted repeatedly: the first conversions are dropped while the panel settles,
+/// the middle half of the sorted rest is averaged, outliers from a bouncing touch are dropped
+fn touch_axis(spi: &mut Spi<'_, SPI1, Async>, command: u8) -> i32 {
+    for _ in 0..TOUCH_SETTLE {
+        touch_channel(spi, command);
+    }
+    let mut samples = [0u16; TOUCH_SAMPLES];
+    for sample in samples.iter_mut() {
+        *sample = touch_channel(spi, command);
+    }
     samples.sort_unstable();
     let middle = &samples[TOUCH_SAMPLES / 4..TOUCH_SAMPLES * 3 / 4];
     middle.iter().map(|&v| i32::from(v)).sum::<i32>() / middle.len() as i32
 }
 
-/// Reads the raw touch position, None when the display is not touched
+/// Reads the raw touch position and pressure, None when the display is not touched or only
+/// lightly
 /// The touch interrupt pin (GP17) is low while touched, so the SPI bus is only used then.
 fn read_touch(
     spi: &mut Spi<'_, SPI1, Async>,
     touch_cs: &mut Output<'_>,
     touch_irq: &Input<'_>,
-) -> Option<(i32, i32)> {
+) -> Option<(i32, i32, i32)> {
     if touch_irq.is_high() {
         return None;
     }
     spi.set_frequency(TOUCH_SPI_FREQUENCY);
     touch_cs.set_low();
-    let mut x = [0u16; TOUCH_SAMPLES];
-    let mut y = [0u16; TOUCH_SAMPLES];
-    for i in 0..TOUCH_SAMPLES {
-        x[i] = touch_channel(spi, 0xd0);
-        y[i] = touch_channel(spi, 0x90);
-    }
+    // pressure from the resistance between the layers, then each axis on its own
+    let z1 = touch_axis(spi, 0xb0);
+    let z2 = touch_axis(spi, 0xc0);
+    let x = touch_axis(spi, 0xd0);
+    let y = touch_axis(spi, 0x90);
     touch_cs.set_high();
     spi.set_frequency(DISPLAY_SPI_FREQUENCY);
-    // released while sampling: the last samples are not valid
-    if touch_irq.is_high() {
+    // released while sampling, or too light: the readings are not valid
+    let pressure = z1 + 4095 - z2;
+    if touch_irq.is_high() || pressure < TOUCH_MIN_PRESSURE {
         return None;
     }
-    let (x, y) = (touch_average(&mut x), touch_average(&mut y));
-    Some(if TOUCH_SWAP_XY { (y, x) } else { (x, y) })
+    Some((x, y, pressure))
 }
 
-/// Display position of a raw touch position, linear between the raw values at the edges
-fn touch_position((x, y): (i32, i32)) -> slint::LogicalPosition {
-    let map = |raw: i32, low: i32, high: i32, size: usize| {
-        let position = (raw - low) as f32 * size as f32 / (high - low) as f32;
-        position.clamp(0.0, size as f32 - 1.0)
-    };
+/// Display position of a raw touch position, with the affine calibration
+fn touch_position((x, y, _): (i32, i32, i32)) -> slint::LogicalPosition {
+    let [a, b, c, d, e, f] = TOUCH_CALIBRATION;
+    let (x, y) = (x as f32, y as f32);
     slint::LogicalPosition::new(
-        map(x, TOUCH_RAW_LEFT, TOUCH_RAW_RIGHT, DISPLAY_WIDTH),
-        map(y, TOUCH_RAW_TOP, TOUCH_RAW_BOTTOM, DISPLAY_HEIGHT),
+        (a * x + b * y + c).clamp(0.0, DISPLAY_WIDTH as f32 - 1.0),
+        (d * x + e * y + f).clamp(0.0, DISPLAY_HEIGHT as f32 - 1.0),
     )
 }
 
@@ -496,13 +505,14 @@ async fn main(_spawner: Spawner) {
             let fps = frames as f32 * 1000.0 / elapsed.as_millis() as f32;
             let heap_peak = HEAP_PEAK.load(Ordering::Relaxed) / 1024;
             let status = match last_touch {
-                Some(((raw_x, raw_y), position)) if SHOW_TOUCH => slint::format!(
-                    "{:.1} fps, heap peak {} of {} KB\ntouch raw {}, {} at {:.0}, {:.0}",
+                Some(((raw_x, raw_y, pressure), position)) if SHOW_TOUCH => slint::format!(
+                    "{:.1} fps, heap peak {} of {} KB\ntouch raw {}, {} z {} at {:.0}, {:.0}",
                     fps,
                     heap_peak,
                     HEAP_SIZE / 1024,
                     raw_x,
                     raw_y,
+                    pressure,
                     position.x,
                     position.y,
                 ),
