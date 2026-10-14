@@ -691,7 +691,19 @@ def turn_coordinator():
         # "2 MIN" text below it
         (-0.25, 0.81, 0.25, 0.99),
     ]
-    return Dial("ui/turn-coordinator.slint", 0, [], marks=marks, rotor=rotor, statics=statics)
+    # L and R at 244 and 116 degree, 0.95 of the inner radius, boxes of 0.092 x 0.06 of the
+    # size, like `label_radius` and `label_half_width`/`label_half_height` in the .slint file
+    ring_ratio = 0.01
+    half_w, half_h = (0.046 / (0.5 - ring_ratio), 0.03 / (0.5 - ring_ratio))
+    for angle in (244, 116):
+        a = math.radians(angle)
+        x, y = 0.95 * math.sin(a), -0.95 * math.cos(a)
+        statics.append((x - half_w, y - half_h, x + half_w, y + half_h))
+    # no bezel ring: the marks reach almost to the edge, like `inner_radius` in the .slint file
+    return Dial(
+        "ui/turn-coordinator.slint", 0, [], marks=marks, rotor=rotor, statics=statics,
+        ring_ratio=ring_ratio,
+    )
 
 
 def heading():
