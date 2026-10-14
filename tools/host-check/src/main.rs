@@ -7,7 +7,6 @@ use std::cell::Cell;
 use std::process::ExitCode;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
-use std::time::{Duration, Instant};
 
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, RepaintBufferType, Rgb565BigEndianPixel,
@@ -378,7 +377,6 @@ fn main() -> ExitCode {
     // status line like in the firmware, updated once per simulated second
     let mut statistics_start = 0;
     let mut statistics_frames: u32 = 0;
-    let mut render_time = Duration::ZERO;
     let mut redraw_rows = 0usize;
 
     for frame in 0..options.frames {
@@ -407,7 +405,6 @@ fn main() -> ExitCode {
 
         slint::platform::update_timers_and_animations();
 
-        let render_start = Instant::now();
         let rendered = Cell::new(false);
         window.draw_if_needed(|renderer| {
             let region = renderer.render(&mut frame_buffer, DISPLAY_WIDTH);
@@ -416,7 +413,6 @@ fn main() -> ExitCode {
         });
         if rendered.get() {
             statistics_frames += 1;
-            render_time += render_start.elapsed();
         }
 
         // after the last frame of an instrument, while nothing has changed since rendering it,
@@ -436,16 +432,13 @@ fn main() -> ExitCode {
         if elapsed_ms >= 1000 && statistics_frames > 0 {
             let fps = statistics_frames as f32 * 1000.0 / elapsed_ms as f32;
             ui.set_status(slint::format!(
-                "{:.1} fps, render {} ms, send {} ms\nheap peak {} of {} KB",
+                "{:.1} fps, heap peak {} of {} KB",
                 fps,
-                render_time.as_millis() / statistics_frames as u128,
-                0,
                 (HEAP_PEAK.load(Relaxed) - heap_base).max(heap_peak) / 1024,
                 HEAP_LIMIT / 1024,
             ));
             statistics_start = time_ms;
             statistics_frames = 0;
-            render_time = Duration::ZERO;
         }
 
         frame_allocations.push(ALLOCATIONS.load(Relaxed) - allocations_before);

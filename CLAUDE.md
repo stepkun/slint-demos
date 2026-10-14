@@ -98,8 +98,11 @@ by the attitude indicator), no FPU and no divide instruction. The Slint software
 - Partial redraws with paths only work with the vendored, patched `i-slint-renderer-software`.
   Don't remove the `[patch.crates-io]` entries.
 - Chip select must be toggled for each transfer (shared SPI1 with the touch controller).
+- Touch: XPT2046 on SPI1 (CS GP16, interrupt GP17, MISO GP12), read at 2 MHz only while touched,
+  passed to Slint as pointer events. Calibration constants and `SHOW_TOUCH` in `src/main.rs`,
+  see the firmware README. The microSD CS (GP22) must stay high.
 - Crash signals: backlight blinking = out of heap, dark = other panic.
-- The status line in the menu area shows fps, render/send time and heap peak.
+- The status line in the menu area shows fps and heap peak in one line.
 
 ## Conventions
 

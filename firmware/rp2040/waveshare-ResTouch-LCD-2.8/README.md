@@ -11,18 +11,20 @@ Waveshare Pico-ResTouch-LCD-2.8.
 | Display | Waveshare Pico-ResTouch-LCD-2.8, ST7789, 240x320, SPI |
 | Orientation | Portrait, rotation 0° |
 
-Display pins (SPI1):
+Display, touch and microSD share SPI1:
 
 | Signal | GPIO |
 |---|---|
 | LCD DC | GP8 |
 | LCD CS | GP9 |
-| LCD CLK | GP10 |
-| LCD MOSI | GP11 |
-| LCD MISO | GP12 (not used by the display) |
+| SPI CLK | GP10 |
+| SPI MOSI | GP11 |
+| SPI MISO | GP12 (read from the touch controller) |
 | LCD backlight | GP13 (PWM slice 6, channel B) |
 | LCD reset | GP15 |
-| Touch CS / IRQ (not used yet) | GP16 / GP17 |
+| Touch CS | GP16 |
+| Touch interrupt | GP17 (low while touched) |
+| microSD CS | GP22 (not used, kept high) |
 
 ## Build and flash
 
@@ -155,9 +157,10 @@ seconds.
 ## Instruments
 
 The menu area has buttons to select the instrument (attitude indicator, altimeter, airspeed
-indicator, heading indicator, vertical speed indicator or turn coordinator). The touch controller isn't used yet,
-so the demo switches the instrument every 20 seconds instead. Only the selected instrument
-exists, so only its elements take heap. The altimeter shows a demo altitude going up and down
+indicator, heading indicator, vertical speed indicator or turn coordinator), see
+[Touch](#touch). Until the display is touched for the first time, the demo switches the
+instrument every 20 seconds. Only the selected instrument exists, so only its elements take
+heap. The altimeter shows a demo altitude going up and down
 between 0 and 10000 ft once a minute, the airspeed indicator a speed between 30 and 180 kt every
 30 seconds, the heading indicator a steady turn, once around per minute, the vertical speed
 indicator a climb and descent of up to 2200 fpm every 40 seconds (the needle stops at 2100), and
@@ -166,6 +169,40 @@ rate marks at 3 degree per second) with the ball swinging a little.
 
 The card of the heading indicator turns, so it is redrawn every frame, like the inner disc of
 the attitude indicator. Its labels stay upright, the software renderer can't rotate text.
+
+## Touch
+
+The touch controller is an XPT2046 on SPI1, shared with the display:
+
+- Once per frame, before rendering, the firmware checks the touch interrupt (GP17). Only while
+  it is low (touched), it switches SPI1 to 2 MHz (the limit of the XPT2046), reads 8 samples of
+  each axis without DMA, and switches back to the display clock. The middle half of the sorted
+  samples is averaged against noise. A touch that ends while sampling is ignored.
+- The touch is passed to Slint as pointer events of the left button: pressed where the touch
+  starts, moved while it lasts, released where it ends. A tap on a button in the menu area is a
+  click on its `TouchArea`.
+- The microSD slot of the board is on SPI1 too. Its chip select (GP22) is kept high, so a card
+  can't drive MISO while the touch controller is read.
+
+### Calibration
+
+The raw values (12 bit) are mapped linearly to the display, with the raw values at its edges in
+`src/main.rs`:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `TOUCH_RAW_LEFT`, `TOUCH_RAW_RIGHT` | 234, 2910 | raw x at the left and right edge |
+| `TOUCH_RAW_TOP`, `TOUCH_RAW_BOTTOM` | 289, 2663 | raw y at the top and bottom edge |
+| `TOUCH_SWAP_XY` | false | swap the raw axes |
+
+The values come from the Waveshare demo code for this board in portrait and are not checked on
+the device yet. If taps land in the wrong place:
+
+1. Set `SHOW_TOUCH = true` and flash. The menu area then shows a second line with the last
+   touch: `touch raw 1234, 2345 at 120, 300` (raw x, raw y, and the mapped position).
+2. Touch near the four edges and note the raw values.
+3. Enter them as the edge values. If raw x changes when moving up and down, set
+   `TOUCH_SWAP_XY`. If an axis is mirrored, swap its two edge values (left > right is fine).
 
 ## Crash signals
 
@@ -193,8 +230,8 @@ Each frame is sent to the display by DMA, so the CPU isn't busy during the trans
   the changed rows are sent. Full rows are contiguous in the frame buffer, so they still go out
   in a single transfer.
 - **The chip select (GP9) must be switched for every frame:** low while sending, high afterwards.
-  With chip select permanently low, the display showed nothing at all. This also matters for the
-  touch controller later, which shares SPI1.
+  With chip select permanently low, the display showed nothing at all. It also leaves the bus
+  free for the touch controller, which shares SPI1.
 - The main loop waits only for the rest of a 20 ms frame time (`FRAME_TIME`), so the frame rate
   is at most 50 frames per second.
 
@@ -203,13 +240,14 @@ Each frame is sent to the display by DMA, so the CPU isn't busy during the trans
 The menu area shows a status line, updated once per second:
 
 ```
-14.8 fps, render 58 ms, send 9 ms
-heap peak 67 of 92 KB
+14.8 fps, heap peak 67 of 92 KB
 ```
 
-- **render:** time Slint needs to draw the changed part of a frame on the CPU.
-- **send:** time of the DMA transfer of the changed rows.
+- **fps:** frames drawn and sent per second.
 - **heap peak:** highest heap use since the start, measured in the allocator.
+
+Render and send times were shown too while the performance was tuned (the table below). They
+were removed to make room in the menu area; measure them again with temporary timing points.
 
 With the attitude indicator moving all the time, the firmware reaches about 15 frames per
 second. Most of the remaining time goes into rasterizing and blending the moving paths
