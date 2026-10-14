@@ -57,6 +57,12 @@ jobs:
             # built first, so a hang shows whether it is the build or the check itself
             build: cargo build --release && timeout 300 cargo run --release -- --png last-frame.png
             artifact: last-frame.png
+          - name: web demo
+            dir: web
+            # the target comes from .cargo/config.toml of the web demo; wasm-pack and the
+            # deployment are in pages.yml
+            target: wasm32-unknown-unknown
+            build: cargo build --release
           - name: partial redraw repro
             dir: issues/rp2040/partial-redraw-path
             packages: pkg-config libfontconfig-dev libxkbcommon-dev libwayland-dev libxcb-shape0-dev libxcb-xfixes0-dev

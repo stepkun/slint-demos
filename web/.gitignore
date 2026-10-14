@@ -1,0 +1,5 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+# output of wasm-pack
+pkg/

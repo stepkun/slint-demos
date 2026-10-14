@@ -1,0 +1,82 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+# Builds the web demo (web/, the six instruments as WebAssembly) and deploys it to GitHub Pages.
+# Every push and pull request builds it, only main is deployed.
+
+name: Web demo
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# a newer push to the same branch makes the older build obsolete
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build web demo
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # prebuilt binary, faster than cargo install
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+
+      # cargo registry and the own target dir of the web demo
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: web -> target
+
+      - name: wasm-pack build
+        working-directory: web
+        run: wasm-pack build --target web --release
+
+      # the page and the module, without the npm package files of wasm-pack
+      - name: Collect the site
+        run: |
+          mkdir -p site/pkg
+          cp web/index.html site/
+          cp web/pkg/web_demo.js web/pkg/web_demo_bg.wasm site/pkg/
+          ls -la site site/pkg
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  deploy:
+    name: deploy to GitHub Pages
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # one deployment at a time, a running one is finished
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

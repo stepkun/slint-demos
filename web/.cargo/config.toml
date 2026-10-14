@@ -1,0 +1,7 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[build]
+# WebAssembly for the browser, also for cargo build/clippy (wasm-pack passes it anyway),
+# needs: rustup target add wasm32-unknown-unknown
+target = "wasm32-unknown-unknown"
