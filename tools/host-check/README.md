@@ -71,26 +71,26 @@ system allocator, they are static in the firmware.
 Example output:
 
 ```
-host check: 240x320, 2100 frames of 67 ms, TLSF heap of the firmware
-heap after ui setup:          25.5 KB
-heap after last frame:        51.1 KB
-heap peak:                    58.6 KB (limit 92 KB)
-  attitude:                   48.5 KB
-  altimeter:                  54.4 KB
-  airspeed:                   58.6 KB
-  heading:                    57.4 KB
-  vertical-speed:             52.9 KB
-  turn-coordinator:           49.8 KB
+host check: 240x320, 2100 frames of 67 ms, TLSF heap of 92 KB
+heap after ui setup:          26.1 KB
+heap after last frame:        52.1 KB
+heap peak:                    59.0 KB (limit 92 KB)
+  attitude:                   43.8 KB
+  altimeter:                  55.9 KB
+  airspeed:                   59.0 KB
+  heading:                    58.9 KB
+  vertical-speed:             53.0 KB
+  turn-coordinator:           37.6 KB
 largest allocation, start:     8.0 KB (path buffers of the renderer)
-largest allocation, frames:    5.6 KB (limit 8 KB)
-allocations, first frame:   1052
-allocations, later frames:  519.9 on average, 204 to 1452
-redrawn rows per frame:     123.8 of 320 on average
+largest allocation, frames:    5.2 KB (limit 8 KB)
+allocations, first frame:   698
+allocations, later frames:  443.6 on average, 99 to 1383
+redrawn rows per frame:     139.3 of 320 on average
 partial vs. full redraw, at the end of each instrument (limit 1 colour step):
   attitude:                 3 pixels differ, largest difference 1 colour steps
   altimeter:                0 pixels differ, largest difference 0 colour steps
   airspeed:                 0 pixels differ, largest difference 0 colour steps
-  heading:                  2 pixels differ, largest difference 1 colour steps
+  heading:                  0 pixels differ, largest difference 0 colour steps
   vertical-speed:           0 pixels differ, largest difference 0 colour steps
   turn-coordinator:         0 pixels differ, largest difference 0 colour steps
   attitude:                 3 pixels differ, largest difference 1 colour steps
