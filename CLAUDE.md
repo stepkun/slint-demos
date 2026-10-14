@@ -61,8 +61,8 @@ what was only built or tested on the host.
 
 ## RP2040 constraints for `.slint` code
 
-The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which ~67 KB are used at peak
-by the attitude indicator), no FPU and no divide instruction. The Slint software renderer
+The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which ~59 KB are requested at peak,
+by the airspeed indicator in the host check, plus ~20 % TLSF overhead), no FPU and no divide instruction. The Slint software renderer
 (1.18.1) has no rotation or scaling transforms.
 
 - **No transforms.** Rotated parts are calculated with `sin()`/`cos()`.
