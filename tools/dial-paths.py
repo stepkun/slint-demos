@@ -658,7 +658,9 @@ def vertical_speed():
         for fpm in range(-2000, 2001, 100)
     ]
     hands = [Hand(0.74, 0.66, 0.12, MARKING_WIDTH * 0.8)]
-    return Dial("ui/vertical-speed.slint", 0.79, hands, ticks)
+    # no bezel ring: the ticks reach almost to the edge, like `inner_radius` in
+    # ui/vertical-speed.slint (0.49 of the size)
+    return Dial("ui/vertical-speed.slint", 0.79, hands, ticks, ring_ratio=0.01)
 
 
 # turn coordinator: a standard rate turn (3 degree per second) banks the aircraft symbol by
