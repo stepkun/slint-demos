@@ -10,6 +10,11 @@ use std::time::{Duration, Instant};
 
 slint::include_modules!();
 
+// instruments of the selector in the menu area, and how long each is shown in the automatic
+// sequence, the same as in the firmware
+const INSTRUMENTS: i32 = 6;
+const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
+
 fn main() -> Result<(), Box<dyn Error>> {
     // use the same renderer as on the rp2040, so the desktop shows what the display will show
     slint::BackendSelector::new()
@@ -19,7 +24,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ui = AppWindow::new()?;
 
     // demo movement until real sensor values are available, the same as in the firmware
+    // (there is no backlight here, the brightness slider has no effect on the desktop)
     let start = Instant::now();
+    // automatic sequence of instruments: when it was last switched on or changed the instrument
+    let mut auto_select = false;
+    let mut instrument_shown_since = start;
     let ui_handle = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(
@@ -41,6 +50,21 @@ fn main() -> Result<(), Box<dyn Error>> {
             // turns beyond the standard rate (3 degree per second), the ball swinging a little
             ui.set_turn_rate(triangle(time, Duration::from_secs(30), 5.0));
             ui.set_slip(triangle(time, Duration::from_secs(12), 0.6));
+
+            // automatic sequence (switch in the menu area): the next instrument every 20 seconds,
+            // counted from when the switch was turned on
+            let now = Instant::now();
+            if ui.get_auto_select() {
+                if !auto_select {
+                    auto_select = true;
+                    instrument_shown_since = now;
+                } else if now - instrument_shown_since >= INSTRUMENT_TIME {
+                    ui.set_instrument((ui.get_instrument() + 1) % INSTRUMENTS);
+                    instrument_shown_since = now;
+                }
+            } else {
+                auto_select = false;
+            }
         },
     );
 

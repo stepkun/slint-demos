@@ -144,23 +144,19 @@ from 50 MHz up to 99 MHz gives 50 MHz too. Only 100 MHz or more gives 100 MHz.
 ## Backlight
 
 The backlight is dimmed by PWM on GP13 at 20 kHz, which is neither visible nor audible. The
-brightness is set in `src/main.rs`:
-
-| Constant | Value | Used |
-|---|---|---|
-| `BRIGHTNESS_DAY` | 100 % | day |
-| `BRIGHTNESS_NIGHT` | 20 % | night |
-
-Until there is a real switch or light sensor, the demo switches to night for 5 of every 15
-seconds.
+brightness is set with the slider in the menu area, from 5 % (left) to 100 % (right); it starts
+at 100 %. It doesn't go down to 0, a dark display would look like a crash (see
+[Crash signals](#crash-signals)). The firmware reads the `brightness` property of the ui every
+frame and sets the PWM when it changed.
 
 ## Instruments
 
-The menu area has buttons to select the instrument (attitude indicator, altimeter, airspeed
-indicator, heading indicator, vertical speed indicator or turn coordinator), see
-[Touch](#touch). Until the display is touched for the first time, the demo switches the
-instrument every 20 seconds. Only the selected instrument exists, so only its elements take
-heap. The altimeter shows a demo altitude going up and down
+The menu area has, below the status line, a switch (AUTO) and the brightness slider, and below
+them buttons to select the instrument (attitude indicator, altimeter, airspeed indicator, heading
+indicator, vertical speed indicator or turn coordinator), see [Touch](#touch). With AUTO on (at
+the start), the firmware shows the next instrument every 20 seconds, counted from when the switch
+was turned on. Selecting an instrument with a button turns AUTO off, so it stays. Only the
+selected instrument exists, so only its elements take heap. The altimeter shows a demo altitude going up and down
 between 0 and 10000 ft once a minute, the airspeed indicator a speed between 30 and 180 kt every
 30 seconds, the heading indicator a steady turn, once around per minute, the vertical speed
 indicator a climb and descent of up to 2200 fpm every 40 seconds (the needle stops at 2100), and

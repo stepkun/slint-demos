@@ -104,7 +104,9 @@ by the attitude indicator), no FPU and no divide instruction. The Slint software
   `src/main.rs`, fitted with `tools/touch-calibration.py`, see the firmware README. The microSD
   CS (GP22) must stay high.
 - Crash signals: backlight blinking = out of heap, dark = other panic.
-- The status line in the menu area shows fps and heap peak in one line.
+- The menu area has the status line (fps and heap peak in one line), the AUTO switch (instrument
+  sequence every 20 s, done by the firmware and the desktop app), the backlight slider (5-100 %,
+  the firmware sets the PWM from the `brightness` property) and the instrument buttons.
 
 ## Conventions
 

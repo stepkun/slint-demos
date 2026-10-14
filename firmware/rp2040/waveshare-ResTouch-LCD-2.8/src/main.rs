@@ -60,9 +60,10 @@ const TOUCH_CALIBRATION: [f32; 6] = [-0.06518, 0.00011, 253.63, 0.00043, -0.0889
 const SHOW_TOUCH: bool = false;
 // shortest time per frame, limits the frame rate to 50 per second
 const FRAME_TIME: Duration = Duration::from_millis(20);
-// backlight brightness in percent, dimmed at night
-const BRIGHTNESS_DAY: u8 = 100;
-const BRIGHTNESS_NIGHT: u8 = 20;
+// instruments of the selector in the menu area, and how long each is shown in the automatic
+// sequence
+const INSTRUMENTS: i32 = 6;
+const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
 // RP2040 has 264 KB RAM: 150 KB frame buffer, 92 KB heap, the rest for stack and statics
 // path rendering temporarily allocates one contiguous block of one byte per pixel
 // of a Path element's box (largest is the inner disc: 192x192 = 36.9 KB)
@@ -347,7 +348,8 @@ async fn main(_spawner: Spawner) {
     backlight_config.divider = 10.into();
     backlight_config.top = 999;
     let mut backlight = Pwm::new_output_b(p.PWM_SLICE6, p.PIN_13, backlight_config);
-    let _ = backlight.set_duty_cycle_percent(BRIGHTNESS_DAY);
+    // full brightness until the ui is running, then the slider in the menu area sets it
+    let _ = backlight.set_duty_cycle_percent(100);
 
     let spi_device = ExclusiveDevice::new(spi, ChipSelect(&lcd_cs), Delay).unwrap();
     let mut interface_buffer = [0u8; 512];
@@ -397,12 +399,13 @@ async fn main(_spawner: Spawner) {
     let mut statistics_start = Instant::now();
     let mut frames: u32 = 0;
 
-    let mut backlight_night = false;
-    let mut shown_instrument = 0;
+    // brightness set on the backlight, it changes with the slider in the menu area
+    let mut brightness = 100;
+    // automatic sequence of instruments: when it was last switched on or changed the instrument
+    let mut auto_select = false;
+    let mut instrument_shown_since = Instant::now();
     // position of the touch while the display is touched, for the release event
     let mut touch: Option<slint::LogicalPosition> = None;
-    // the demo switches the instrument until the display is touched for the first time
-    let mut touched = false;
     // last raw and mapped touch position, shown with SHOW_TOUCH
     let mut last_touch = None;
 
@@ -421,12 +424,18 @@ async fn main(_spawner: Spawner) {
         // turns beyond the standard rate (3 degree per second), the ball swinging a little
         ui.set_turn_rate(triangle(frame_start, Duration::from_secs(30), 5.0));
         ui.set_slip(triangle(frame_start, Duration::from_secs(12), 0.6));
-        // demo: switch the instrument every 20 seconds, until the buttons in the menu area are
-        // used for the first time
-        let instrument = (frame_start.as_secs() / 20 % 6) as i32;
-        if !touched && instrument != shown_instrument {
-            shown_instrument = instrument;
-            ui.set_instrument(instrument);
+        // automatic sequence (switch in the menu area): the next instrument every 20 seconds,
+        // counted from when the switch was turned on
+        if ui.get_auto_select() {
+            if !auto_select {
+                auto_select = true;
+                instrument_shown_since = frame_start;
+            } else if frame_start - instrument_shown_since >= INSTRUMENT_TIME {
+                ui.set_instrument((ui.get_instrument() + 1) % INSTRUMENTS);
+                instrument_shown_since = frame_start;
+            }
+        } else {
+            auto_select = false;
         }
 
         // touch input, as pointer events of the left button: pressed when the touch starts,
@@ -441,7 +450,6 @@ async fn main(_spawner: Spawner) {
                 };
                 window.dispatch_event(event);
                 touch = Some(position);
-                touched = true;
                 last_touch = Some((raw, position));
             }
             (None, Some(position)) => {
@@ -453,17 +461,11 @@ async fn main(_spawner: Spawner) {
             }
             (None, None) => {}
         }
-        // demo: night for 5 of every 15 seconds, until there is a switch or light sensor
-        let night = frame_start.as_secs() % 15 >= 10;
 
-        // at night the backlight is dimmed
-        if night != backlight_night {
-            backlight_night = night;
-            let brightness = if night {
-                BRIGHTNESS_NIGHT
-            } else {
-                BRIGHTNESS_DAY
-            };
+        // backlight brightness from the slider in the menu area (5 to 100 %)
+        let selected_brightness = ui.get_brightness().clamp(5, 100) as u8;
+        if selected_brightness != brightness {
+            brightness = selected_brightness;
             let _ = backlight.set_duty_cycle_percent(brightness);
         }
 
