@@ -11,6 +11,7 @@ The RP2040 is the target that matters: everything must work there.
 | `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `test-app.slint` (`AppWindow`) |
 | `src/main.rs` | Desktop app, uses the software renderer to show what the display will show |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
+| `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
 
 The firmware `README.md` documents hardware, clocks, memory, performance and the vendored
@@ -25,8 +26,19 @@ cargo build --release                         # firmware, needs: rustup target a
 cargo run --release                           # flash, only with a Pico in BOOTSEL mode attached
 ```
 
-The firmware, `issues/rp2040/host-test` and `issues/rp2040/partial-redraw-path` are separate
+The firmware, `tools/host-check` and `issues/rp2040/partial-redraw-path` are separate
 crates (own `[workspace]`), build them from their own directory.
+
+After changing the `.slint` files or the vendored crates, run the host check
+(see `tools/host-check/README.md`):
+
+```sh
+cd tools/host-check
+cargo run --release                           # fails above 92 KB heap peak, 24 KB single allocation,
+                                              # or partial vs. full redraw differing by > 1 colour step
+```
+
+Its heap numbers are higher than on the device (64-bit pointers on the host).
 
 Without the hardware, the final check on the display is done by the maintainer. Say clearly
 what was only built or tested on the host.
