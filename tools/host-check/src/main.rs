@@ -18,9 +18,10 @@ slint::include_modules!();
 // the same display as in the firmware: 240x320 portrait
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
-// limits of the firmware: heap size, and the largest block that may be allocated: the mask of a
-// path band (MAX_MASK_BYTES of the patched renderer), which is allocated once at the start.
-// Larger blocks may not be found any more once the heap is fragmented.
+// limits of the firmware: heap size, and the largest block that may be allocated after the
+// start: the mask of a path band (MAX_MASK_BYTES of the patched renderer). Larger blocks may not
+// be found any more once the heap is fragmented. Only the renderer's path buffers (mask and
+// rasterizer cells) are larger, they are allocated once at the start, with the window.
 const HEAP_LIMIT: usize = 92 * 1024;
 const ALLOCATION_LIMIT: usize = 8 * 1024;
 // largest allowed difference per colour channel between partial and full redraw, in RGB565 steps
@@ -28,14 +29,14 @@ const ALLOCATION_LIMIT: usize = 8 * 1024;
 const COLOUR_TOLERANCE: u8 = 1;
 
 // the instruments of the selector in ui/test-app.slint, in the order of their `instrument` value
-const INSTRUMENTS: [&str; 3] = ["attitude", "altimeter", "airspeed"];
+const INSTRUMENTS: [&str; 4] = ["attitude", "altimeter", "airspeed", "heading"];
 // like the firmware demo, the instrument changes every 20 seconds
 const INSTRUMENT_MS: u64 = 20_000;
 
 // defaults of the simulated run: the firmware reaches about 15 fps,
-// 1000 frames are 67 seconds: each instrument for 20 seconds, then back to the first one,
-// more than a full roll (8 s), pitch (5 s) and half an altitude and airspeed period (60 s)
-const DEFAULT_FRAMES: u64 = 1000;
+// 1250 frames are 84 seconds: each instrument for 20 seconds, then back to the first one,
+// more than a full roll (8 s), pitch (5 s), altitude (60 s) and heading (60 s) period
+const DEFAULT_FRAMES: u64 = 1250;
 const DEFAULT_FRAME_MS: u64 = 67;
 
 // heap bytes in use, the highest value, the largest single allocation and the number of
@@ -74,8 +75,9 @@ unsafe impl GlobalAlloc for CountingAllocator {
             // embedded-alloc 0.7 walk all blocks, `used()` panics (it borrows the heap twice),
             // and `free()` never returns when built with Rust 1.99 for i686
             if ptr.is_null() {
-                // like the firmware this ends the run (the allocation error aborts), report
-                // first, without allocating
+                // like the firmware this ends the run: report without allocating, then abort.
+                // Returning null would let Rust's allocation error handler print a backtrace,
+                // which allocates from the exhausted heap again and then deadlocks.
                 use std::io::Write;
                 let _ = writeln!(
                     std::io::stderr(),
@@ -85,6 +87,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
                     HEAP_USED.load(Relaxed) - HEAP_BASE.load(Relaxed),
                     HEAP_LIMIT / 1024
                 );
+                std::process::abort();
             }
             ptr
         } else {
@@ -147,10 +150,10 @@ struct Options {
 const USAGE: &str = "\
 usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--system-alloc] [--png FILE]
 
-  --frames N         number of animated frames (default 1000)
+  --frames N         number of animated frames (default 1250)
   --frame-ms MS      simulated time per frame in ms (default 67, about 15 fps like the firmware)
-  --instrument NAME  only attitude, altimeter or airspeed (default: each for 20 s, like the
-                     firmware demo)
+  --instrument NAME  only attitude, altimeter, airspeed or heading (default: each for 20 s,
+                     like the firmware demo)
   --system-alloc     only count the allocations, instead of allocating from the TLSF heap of
                      the firmware (92 KB, the default on 32-bit builds like i686, which
                      tools/host-check/.cargo/config.toml selects)
@@ -355,6 +358,8 @@ fn main() -> ExitCode {
     ui.set_screen_height(DISPLAY_HEIGHT as f32);
     ui.show().unwrap();
     let setup_heap = HEAP_USED.load(Relaxed) - heap_base;
+    // the larger blocks of the start, while the heap is empty, are allowed
+    let setup_largest_allocation = LARGEST_ALLOCATION.swap(0, Relaxed);
 
     // heap peak and partial vs. full redraw per instrument, the frame that switches to an
     // instrument counts for it, because it creates the instrument
@@ -388,6 +393,7 @@ fn main() -> ExitCode {
         ui.set_pitch(triangle(time_ms, 5000, 10.0));
         ui.set_altitude(5000.0 + triangle(time_ms, 60_000, 5000.0));
         ui.set_airspeed(105.0 + triangle(time_ms, 30_000, 75.0));
+        ui.set_heading((time_ms % 60_000) as f32 * 0.006);
 
         slint::platform::update_timers_and_animations();
 
@@ -459,7 +465,11 @@ fn main() -> ExitCode {
         }
     }
     println!(
-        "largest single allocation:  {:6.1} KB (limit {} KB)",
+        "largest allocation, start:  {:6.1} KB (path buffers of the renderer)",
+        kb(setup_largest_allocation)
+    );
+    println!(
+        "largest allocation, frames: {:6.1} KB (limit {} KB)",
         kb(largest_allocation),
         ALLOCATION_LIMIT / 1024
     );

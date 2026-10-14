@@ -321,9 +321,11 @@ async fn main(_spawner: Spawner) {
         ui.set_pitch(triangle(frame_start, Duration::from_secs(5), 10.0));
         ui.set_altitude(5000.0 + triangle(frame_start, Duration::from_secs(60), 5000.0));
         ui.set_airspeed(105.0 + triangle(frame_start, Duration::from_secs(30), 75.0));
+        // a steady turn, once around per minute
+        ui.set_heading((frame_start.as_millis() % 60_000) as f32 * 0.006);
         // demo: switch the instrument every 20 seconds, until the touch controller is used
         // and the buttons in the menu area can be pressed
-        let instrument = (frame_start.as_secs() / 20 % 3) as i32;
+        let instrument = (frame_start.as_secs() / 20 % 4) as i32;
         if instrument != shown_instrument {
             shown_instrument = instrument;
             ui.set_instrument(instrument);

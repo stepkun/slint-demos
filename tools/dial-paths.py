@@ -74,6 +74,27 @@ class Hand:
 
 
 @dataclass
+class Card:
+    """a card that turns as a whole (heading indicator): its paths are redrawn every frame"""
+
+    ticks: list  # Tick at their angle on the card
+    paths: int  # number of paths the ticks are split into (each rebuilds its elements per frame)
+    labels: list  # (angle, text) on the card, the text stays upright
+    label_radius: float  # relative to the inner radius
+
+
+@dataclass
+class Shape:
+    """a static filled shape, polygons in units of the inner radius from the center (y down)"""
+
+    name: str
+    color: str
+    polygons: list
+    # drawn over the turning card on purpose (redrawn with it), not checked for overlap
+    over_card: bool = False
+
+
+@dataclass
 class Dial:
     file: str
     min_distance: float  # smallest distance of a static box from the center, rel. inner radius
@@ -84,6 +105,8 @@ class Dial:
     marks: list = field(default_factory=list)
     # groups of ticks chosen by hand instead of the grouping by distance
     groups: list = None
+    card: Card = None
+    shapes: list = field(default_factory=list)
 
 
 def ratio(r):
@@ -256,6 +279,85 @@ def tick_path(group):
     return out
 
 
+def card_tick_path(group, card_box):
+    first, last = group[0].angle, group[-1].angle
+    out = [f"    // card ticks {first:g}deg to {last:g}deg, they turn with the card", "    Path {"]
+    out += viewbox_lines(card_box)
+    out.append(f"        fill: {group[0].color};")
+    for tick in group:
+        for i, corner in enumerate(TICK_CORNERS):
+            # offset from the center on the card before it is turned
+            ax, bx = tick_coefficients(tick, corner, "x")
+            ay, by = tick_coefficients(tick, corner, "y")
+            px, py = expression(ax - 0.5, bx), expression(ay - 0.5, by)
+            out.append("")
+            out.append(f"        {'MoveTo' if i == 0 else 'LineTo'} {{")
+            # written out instead of calling card_x/card_y: the compiler then reads each
+            # property once per path; in a function it reads them (and computes their sine and
+            # cosine) again for every call, and each read costs a dependency node of heap
+            out.append(f"            x: center + ({px}) * cos_heading + ({py}) * sin_heading;")
+            out.append(f"            y: center - ({px}) * sin_heading + ({py}) * cos_heading;")
+            out.append("        }")
+        out.append("")
+        out.append("        Close { }")
+    out.append("    }")
+    out.append("")
+    return out
+
+
+def card_label(angle, text, radius):
+    a = math.radians(angle)
+    px = expression(ratio(radius) * math.sin(a), 0)
+    py = expression(-ratio(radius) * math.cos(a), 0)
+    return [
+        f"    // {angle:g}deg",
+        "    Text {",
+        f"        x: (center + ({px}) * cos_heading + ({py}) * sin_heading - label_half_width) * 1px;",
+        f"        y: (center - ({px}) * sin_heading + ({py}) * cos_heading - label_half_height) * 1px;",
+        "        width: 2px * label_half_width;",
+        "        height: 2px * label_half_height;",
+        f'        text: "{text}";',
+        "        color: Theme.marking;",
+        "        font-size: 14px;",
+        "        horizontal-alignment: TextHorizontalAlignment.center;",
+        "        vertical-alignment: TextVerticalAlignment.center;",
+        "    }",
+        "",
+    ]
+
+
+def shape_points(shape):
+    """(A, A) of x and y of all points of a shape"""
+    return [
+        (0.5 + ratio(x), 0.5 + ratio(y)) for polygon in shape.polygons for x, y in polygon
+    ]
+
+
+def shape_extremes(shape):
+    points = shape_points(shape)
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return (min(xs), 0), (min(ys), 0), (max(xs), 0), (max(ys), 0)
+
+
+def shape_path(shape):
+    out = [f"    // {shape.name}", "    Path {"]
+    out += viewbox_lines(shape_extremes(shape))
+    out.append(f"        fill: {shape.color};")
+    for polygon in shape.polygons:
+        for i, (x, y) in enumerate(polygon):
+            out.append("")
+            out.append(f"        {'MoveTo' if i == 0 else 'LineTo'} {{")
+            out.append(f"            x: {expression(0.5 + ratio(x), 0)};")
+            out.append(f"            y: {expression(0.5 + ratio(y), 0)};")
+            out.append("        }")
+        out.append("")
+        out.append("        Close { }")
+    out.append("    }")
+    out.append("")
+    return out
+
+
 def arc_path(arc, start, end):
     out = [f"    // {arc.name}, {start:g}deg to {end:g}deg", "    Path {"]
     out += viewbox_lines(arc_extremes(arc, start, end))
@@ -310,10 +412,40 @@ def generate(dial):
         out += tick_path(group)
     for mark in dial.marks:
         out += tick_path([mark])
+
+    card_report = ""
+    if dial.card:
+        card = dial.card
+        # the box of the whole card, it contains every tick at every heading
+        outer = max(t.outer for t in card.ticks)
+        half_width = max(t.half_width for t in card.ticks)
+        card_box = (
+            (0.5 - ratio(outer), -half_width),
+            (0.5 - ratio(outer), -half_width),
+            (0.5 + ratio(outer), half_width),
+            (0.5 + ratio(outer), half_width),
+        )
+        per_path = math.ceil(len(card.ticks) / card.paths)
+        for i in range(0, len(card.ticks), per_path):
+            out += card_tick_path(card.ticks[i : i + per_path], card_box)
+        for angle, text in card.labels:
+            out += card_label(angle, text, card.label_radius)
+        # static shapes must stay outside the box of the turning card
+        for shape in dial.shapes:
+            if not shape.over_card and overlap(box(shape_extremes(shape)), box(card_box)):
+                sys.exit(f"{dial.file}: {shape.name} overlaps the box of the card")
+        card_report = (
+            f", card: {card.paths} tick paths of {per_path} ticks, {len(card.labels)} labels"
+        )
+    for shape in dial.shapes:
+        out += shape_path(shape)
+
     report = (
         f"{dial.file}: {len(arc_pieces)} arc paths, {len(tick_groups)} tick paths "
         f"{[len(g) for g in tick_groups]}, {len(dial.marks)} marks, "
         + ("no overlap with the hands" if dial.hands else "no hands to check")
+        + card_report
+        + (f", {len(dial.shapes)} shapes" if dial.shapes else "")
     )
     return out, report
 
@@ -388,11 +520,60 @@ def airspeed():
     return Dial("ui/airspeed.slint", 0.79, hands, ticks, arcs, marks)
 
 
+def heading():
+    # card ticks every 5 degree, long and wide ones every 10 degree
+    ticks = [
+        Tick(
+            a,
+            0.85 if a % 10 == 0 else 0.92,
+            1.0,
+            MARKING_WIDTH / 2 if a % 10 == 0 else MARKING_WIDTH / 4,
+            "Theme.marking",
+        )
+        for a in range(0, 360, 5)
+    ]
+    names = {0: "N", 90: "E", 180: "S", 270: "W"}
+    labels = [(a, names.get(a, str(a // 10))) for a in range(0, 360, 30)]
+    # each card path rebuilds its elements every frame: 8 paths of 9 ticks need about 1.3 KB
+    # each (one path 10 KB, 4 paths 2.5 KB weren't found any more in the fragmented heap of the
+    # host check), and a band of 9 ticks stays within the 512 reserved rasterizer cells
+    card = Card(ticks, 8, labels, 0.68)
+
+    # heading mark at the top and marks at 3, 6 and 9 o'clock, in the ring outside the card
+    def ring_mark(angle):
+        # a narrow quadrilateral in the ring, pointing to the center, from 1.05 to 1.2
+        a = math.radians(angle)
+        s, c = math.sin(a), math.cos(a)
+        w = MARKING_WIDTH / 2 / INNER_RADIUS
+        return [
+            (r * s + side * w * c, -r * c + side * w * s)
+            for r, side in ((1.05, -1), (1.2, -1), (1.2, 1), (1.05, 1))
+        ]
+
+    lubber = [(0.0, -1.05), (-0.09, -1.22), (0.09, -1.22)]
+    # aircraft seen from above, nose up: fuselage, wings, tail
+    aircraft = [
+        [(-0.03, -0.38), (0.03, -0.38), (0.03, 0.30), (-0.03, 0.30)],
+        [(-0.36, -0.08), (0.36, -0.08), (0.36, 0.0), (-0.36, 0.0)],
+        [(-0.14, 0.24), (0.14, 0.24), (0.14, 0.30), (-0.14, 0.30)],
+    ]
+    shapes = [
+        Shape("heading mark at the top, in the ring", "Theme.vehicle", [lubber]),
+        # one shape each, a common box would span the card
+        *(
+            Shape(f"mark at {a}deg, in the ring", "Theme.marking", [ring_mark(a)])
+            for a in (90, 180, 270)
+        ),
+        Shape("aircraft symbol, over the card", "Theme.vehicle", aircraft, over_card=True),
+    ]
+    return Dial("ui/heading.slint", 0, [], card=card, shapes=shapes)
+
+
 def main():
     check = "--check" in sys.argv[1:]
     root = Path(__file__).resolve().parent.parent
     outdated = []
-    for dial in (attitude(), altimeter(), airspeed()):
+    for dial in (attitude(), altimeter(), airspeed(), heading()):
         lines, report = generate(dial)
         print(report, file=sys.stderr)
         path = root / dial.file
