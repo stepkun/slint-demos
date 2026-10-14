@@ -39,6 +39,12 @@ export component AppWindow inherits Window {
     in property <length> screen_height: 240px;
     // diagnostic text shown in the menu area, for example the frame rate
     in property <string> status;
+    // backlight brightness in percent, set with the slider in the menu area (not below 5, a dark
+    // display would look like a crash); the firmware sets the backlight from it
+    in-out property <int> brightness: 100;
+    // instruments shown one after the other (switch in the menu area), the application switches
+    // them; selecting an instrument with a button turns it off
+    in-out property <bool> auto_select: true;
 
     default-font-family: "Noto Sans";
     // the window fills the background, so no other element needs to
@@ -62,12 +68,117 @@ export component AppWindow inherits Window {
 
             Text {
                 x: 4px;
-                y: 4px;
+                y: root.portrait ? 2px : 4px;
                 width: parent.width - 8px;
                 text: root.status;
                 color: Theme.marking;
                 font-size: 12px;
                 wrap: word-wrap;
+            }
+
+            // Controls between the status line and the buttons: in portrait side by side in one
+            // row, in landscape stacked. Built from Rectangles and one TouchArea each instead of
+            // the std-widgets, which cost much more heap on the RP2040. Moving parts are on whole
+            // pixels, so their anti-aliased edges stay inside the redrawn region.
+
+            // switch for the automatic sequence of instruments
+            Rectangle {
+                x: 4px;
+                y: root.portrait ? 20px : 54px;
+                width: root.portrait ? 64px : parent.width - 8px;
+                height: root.portrait ? 22px : 20px;
+
+                // track and knob, the knob is on the right while switched on
+                Rectangle {
+                    x: 0;
+                    y: round((parent.height - self.height) / 2px) * 1px;
+                    width: 28px;
+                    height: 14px;
+                    border-radius: self.height / 2;
+                    background: root.auto_select ? Theme.selected : Theme.bezel;
+
+                    Rectangle {
+                        x: root.auto_select ? 16px : 2px;
+                        y: 2px;
+                        width: 10px;
+                        height: self.width;
+                        border-radius: self.width / 2;
+                        background: Theme.marking;
+                    }
+                }
+
+                Text {
+                    x: 32px;
+                    width: parent.width - self.x;
+                    text: "AUTO";
+                    color: Theme.marking;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.auto_select = !root.auto_select;
+                    }
+                }
+            }
+
+            // slider for the backlight brightness, from 5 % (left) to 100 % (right)
+            Rectangle {
+                // the knob center moves between `margin` and `width - margin`
+                property <length> margin: 6px;
+                property <float> value: (root.brightness - 5) / 95;
+
+                x: root.portrait ? 72px : 4px;
+                y: root.portrait ? 20px : 78px;
+                width: root.portrait ? parent.width - 76px : parent.width - 8px;
+                height: root.portrait ? 22px : 20px;
+
+                // brightness from the touched position
+                function set_from(position: length) {
+                    root.brightness = round(5 + 95 * max(0, min(1, (position - self.margin) / (self.width - 2 * self.margin))));
+                }
+
+                // track
+                Rectangle {
+                    x: parent.margin;
+                    y: round((parent.height - self.height) / 2px) * 1px;
+                    width: parent.width - 2 * parent.margin;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: Theme.bezel;
+                }
+
+                // part of the track up to the knob
+                Rectangle {
+                    x: parent.margin;
+                    y: round((parent.height - self.height) / 2px) * 1px;
+                    width: round(parent.value * (parent.width - 2 * parent.margin) / 1px) * 1px;
+                    height: 4px;
+                    border-radius: 2px;
+                    background: Theme.selected;
+                }
+
+                // knob
+                Rectangle {
+                    x: round(parent.value * (parent.width - 2 * parent.margin) / 1px) * 1px;
+                    y: round((parent.height - self.height) / 2px) * 1px;
+                    width: 2 * parent.margin;
+                    height: self.width;
+                    border-radius: self.width / 2;
+                    background: Theme.marking;
+                }
+
+                TouchArea {
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down {
+                            parent.set_from(self.mouse-x);
+                        }
+                    }
+                    moved => {
+                        parent.set_from(self.mouse-x);
+                    }
+                }
             }
 
             // instrument selector at the bottom of the menu area: buttons side by side in
@@ -78,8 +189,8 @@ export component AppWindow inherits Window {
             Rectangle {
                 property <int> button_count: 6;
                 // large enough for a finger on the display (portrait), shorter in landscape, so
-                // all buttons fit below the status line
-                property <length> button_size: root.portrait ? 36px : 24px;
+                // all buttons fit below the status line and the controls
+                property <length> button_size: root.portrait ? 32px : 22px;
                 property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
                 // index of the touched button, from the position in the frame
                 property <int> touched: max(0, min(self.button_count - 1, floor(root.portrait ? touch.pressed-x / self.button_width : touch.pressed-y / self.button_size)));
@@ -177,6 +288,8 @@ export component AppWindow inherits Window {
                 touch := TouchArea {
                     clicked => {
                         root.instrument = parent.touched;
+                        // a selected instrument stays, the automatic sequence would replace it
+                        root.auto_select = false;
                     }
                 }
             }

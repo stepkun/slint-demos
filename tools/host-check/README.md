@@ -70,20 +70,20 @@ Example output:
 
 ```
 host check: 240x320, 2100 frames of 67 ms, TLSF heap of the firmware
-heap after ui setup:          24.5 KB
-heap after last frame:        49.5 KB
-heap peak:                    57.4 KB (limit 92 KB)
-  attitude:                   46.8 KB
-  altimeter:                  52.7 KB
-  airspeed:                   57.4 KB
-  heading:                    55.7 KB
-  vertical-speed:             51.3 KB
-  turn-coordinator:           48.2 KB
+heap after ui setup:          25.5 KB
+heap after last frame:        51.1 KB
+heap peak:                    58.6 KB (limit 92 KB)
+  attitude:                   48.5 KB
+  altimeter:                  54.4 KB
+  airspeed:                   58.6 KB
+  heading:                    57.4 KB
+  vertical-speed:             52.9 KB
+  turn-coordinator:           49.8 KB
 largest allocation, start:     8.0 KB (path buffers of the renderer)
 largest allocation, frames:    5.6 KB (limit 8 KB)
-allocations, first frame:   1000
-allocations, later frames:  496.0 on average, 180 to 1418
-redrawn rows per frame:     123.9 of 320 on average
+allocations, first frame:   1052
+allocations, later frames:  519.9 on average, 204 to 1452
+redrawn rows per frame:     123.8 of 320 on average
 partial vs. full redraw, at the end of each instrument (limit 1 colour step):
   attitude:                 3 pixels differ, largest difference 1 colour steps
   altimeter:                0 pixels differ, largest difference 0 colour steps

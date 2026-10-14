@@ -15,8 +15,8 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use embassy_executor::Spawner;
 use embassy_rp::clocks::ClockConfig;
-use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, SPI1};
+use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI1};
 use embassy_rp::pwm::{self, Pwm, SetDutyCycle};
 use embassy_rp::spi::{self, Async, Spi};
 use embassy_rp::{bind_interrupts, dma};
@@ -38,11 +38,32 @@ const SYSTEM_CLOCK: u32 = 200_000_000;
 // display in its native portrait orientation (rotation 0 degree)
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
+// SPI clock for the display, at most half of the system clock, with even dividers only:
+// 100 MHz or 50 MHz at 200 MHz system clock (the ST7789 datasheet specifies 62.5 MHz)
+// if the picture shows speckles or wrong colors, use 50_000_000
+const DISPLAY_SPI_FREQUENCY: u32 = 100_000_000;
+// the XPT2046 touch controller shares SPI1, it is read at 2 MHz (its maximum clock)
+const TOUCH_SPI_FREQUENCY: u32 = 2_000_000;
+// conversions per axis: the first ones are dropped while the voltages on the panel settle after
+// its layers were switched, the middle half of the rest is averaged against noise
+const TOUCH_SETTLE: usize = 2;
+const TOUCH_SAMPLES: usize = 8;
+// a light touch gives readings pulled towards the middle of the panel, touches with a lower
+// pressure value (Z1 + 4095 - Z2, the threshold common XPT2046 drivers use) are ignored
+const TOUCH_MIN_PRESSURE: i32 = 350;
+// raw touch values (12 bit) to display position, affine, so it can also correct a rotated or
+// skewed panel: x = A * raw_x + B * raw_y + C, y = D * raw_x + E * raw_y + F.
+// Fitted with tools/touch-calibration.py to five targets touched on the device (all within 2 px);
+// the panel is mirrored on both axes, not rotated. To calibrate again, see the README.
+const TOUCH_CALIBRATION: [f32; 6] = [-0.06518, 0.00011, 253.63, 0.00043, -0.08898, 349.34];
+// shows the last raw and mapped touch position in the menu area, for the calibration
+const SHOW_TOUCH: bool = false;
 // shortest time per frame, limits the frame rate to 50 per second
 const FRAME_TIME: Duration = Duration::from_millis(20);
-// backlight brightness in percent, dimmed at night
-const BRIGHTNESS_DAY: u8 = 100;
-const BRIGHTNESS_NIGHT: u8 = 20;
+// instruments of the selector in the menu area, and how long each is shown in the automatic
+// sequence
+const INSTRUMENTS: i32 = 6;
+const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
 // RP2040 has 264 KB RAM: 150 KB frame buffer, 92 KB heap, the rest for stack and statics
 // path rendering temporarily allocates one contiguous block of one byte per pixel
 // of a Path element's box (largest is the inner disc: 192x192 = 36.9 KB)
@@ -95,7 +116,7 @@ static mut FRAME_BUFFER: [Rgb565BigEndianPixel; DISPLAY_WIDTH * DISPLAY_HEIGHT] 
     [Rgb565BigEndianPixel(0); DISPLAY_WIDTH * DISPLAY_HEIGHT];
 
 bind_interrupts!(struct Irqs {
-    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
 /// On a crash the backlight shows what happened:
@@ -214,6 +235,69 @@ async fn send_rows(
     cs.borrow_mut().set_high();
 }
 
+/// One conversion of the XPT2046: the command selects the channel (12 bit, differential, power
+/// down between conversions, so the touch interrupt stays active), the result follows in the next
+/// two bytes, left aligned
+fn touch_channel(spi: &mut Spi<'_, SPI1, Async>, command: u8) -> u16 {
+    let mut answer = [0u8; 3];
+    // errors are ignored, a wrong reading is replaced by the next one
+    let _ = spi.blocking_transfer(&mut answer, &[command, 0, 0]);
+    (u16::from(answer[1]) << 8 | u16::from(answer[2])) >> 3
+}
+
+/// One channel, converted repeatedly: the first conversions are dropped while the panel settles,
+/// the middle half of the sorted rest is averaged, outliers from a bouncing touch are dropped
+fn touch_axis(spi: &mut Spi<'_, SPI1, Async>, command: u8) -> i32 {
+    for _ in 0..TOUCH_SETTLE {
+        touch_channel(spi, command);
+    }
+    let mut samples = [0u16; TOUCH_SAMPLES];
+    for sample in samples.iter_mut() {
+        *sample = touch_channel(spi, command);
+    }
+    samples.sort_unstable();
+    let middle = &samples[TOUCH_SAMPLES / 4..TOUCH_SAMPLES * 3 / 4];
+    middle.iter().map(|&v| i32::from(v)).sum::<i32>() / middle.len() as i32
+}
+
+/// Reads the raw touch position and pressure, None when the display is not touched or only
+/// lightly
+/// The touch interrupt pin (GP17) is low while touched, so the SPI bus is only used then.
+fn read_touch(
+    spi: &mut Spi<'_, SPI1, Async>,
+    touch_cs: &mut Output<'_>,
+    touch_irq: &Input<'_>,
+) -> Option<(i32, i32, i32)> {
+    if touch_irq.is_high() {
+        return None;
+    }
+    spi.set_frequency(TOUCH_SPI_FREQUENCY);
+    touch_cs.set_low();
+    // pressure from the resistance between the layers, then each axis on its own
+    let z1 = touch_axis(spi, 0xb0);
+    let z2 = touch_axis(spi, 0xc0);
+    let x = touch_axis(spi, 0xd0);
+    let y = touch_axis(spi, 0x90);
+    touch_cs.set_high();
+    spi.set_frequency(DISPLAY_SPI_FREQUENCY);
+    // released while sampling, or too light: the readings are not valid
+    let pressure = z1 + 4095 - z2;
+    if touch_irq.is_high() || pressure < TOUCH_MIN_PRESSURE {
+        return None;
+    }
+    Some((x, y, pressure))
+}
+
+/// Display position of a raw touch position, with the affine calibration
+fn touch_position((x, y, _): (i32, i32, i32)) -> slint::LogicalPosition {
+    let [a, b, c, d, e, f] = TOUCH_CALIBRATION;
+    let (x, y) = (x as f32, y as f32);
+    slint::LogicalPosition::new(
+        (a * x + b * y + c).clamp(0.0, DISPLAY_WIDTH as f32 - 1.0),
+        (d * x + e * y + f).clamp(0.0, DISPLAY_HEIGHT as f32 - 1.0),
+    )
+}
+
 /// Triangle wave between -amplitude and +amplitude with the given period
 fn triangle(time: Instant, period: Duration, amplitude: f32) -> f32 {
     let period = period.as_millis();
@@ -240,14 +324,20 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(embassy_rp::config::Config::new(clocks));
 
     // LCD on SPI1: CLK GP10, MOSI GP11, CS GP9, DC GP8, RST GP15, backlight GP13 (PWM)
-    // (MISO GP12 is not needed for the display)
+    // touch controller XPT2046 on the same bus: MISO GP12, CS GP16, interrupt GP17
     let mut spi_config = spi::Config::default();
-    // SPI runs at most at half of the system clock, with even dividers only:
-    // 100 MHz or 50 MHz at 200 MHz system clock (the ST7789 datasheet specifies 62.5 MHz)
-    // if the picture shows speckles or wrong colors, use 50_000_000
-    spi_config.frequency = 100_000_000;
-    // transmit only, with DMA for the frame buffer
-    let spi = Spi::new_txonly(p.SPI1, p.PIN_10, p.PIN_11, p.DMA_CH0, Irqs, spi_config);
+    spi_config.frequency = DISPLAY_SPI_FREQUENCY;
+    // DMA for the frame buffer (channel 0), the receive channel is needed by the driver,
+    // the touch controller is read without DMA
+    let spi = Spi::new(
+        p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, p.DMA_CH0, p.DMA_CH1, Irqs, spi_config,
+    );
+    // touch controller deselected, the interrupt is open drain and low while touched
+    let mut touch_cs = Output::new(p.PIN_16, Level::High);
+    let touch_irq = Input::new(p.PIN_17, Pull::Up);
+    // the microSD slot of the board is on SPI1 too (CS GP22): kept deselected, so a card can't
+    // drive MISO while the touch controller is read
+    let _sd_cs = Output::new(p.PIN_22, Level::High);
     // shared between mipidsi and the DMA transfers
     let lcd_cs = RefCell::new(Output::new(p.PIN_9, Level::High));
     let lcd_dc = Output::new(p.PIN_8, Level::Low);
@@ -258,7 +348,8 @@ async fn main(_spawner: Spawner) {
     backlight_config.divider = 10.into();
     backlight_config.top = 999;
     let mut backlight = Pwm::new_output_b(p.PWM_SLICE6, p.PIN_13, backlight_config);
-    let _ = backlight.set_duty_cycle_percent(BRIGHTNESS_DAY);
+    // full brightness until the ui is running, then the slider in the menu area sets it
+    let _ = backlight.set_duty_cycle_percent(100);
 
     let spi_device = ExclusiveDevice::new(spi, ChipSelect(&lcd_cs), Delay).unwrap();
     let mut interface_buffer = [0u8; 512];
@@ -307,11 +398,16 @@ async fn main(_spawner: Spawner) {
     // frame statistics, shown once per second in the menu area
     let mut statistics_start = Instant::now();
     let mut frames: u32 = 0;
-    let mut render_time = Duration::from_ticks(0);
-    let mut send_time = Duration::from_ticks(0);
 
-    let mut backlight_night = false;
-    let mut shown_instrument = 0;
+    // brightness set on the backlight, it changes with the slider in the menu area
+    let mut brightness = 100;
+    // automatic sequence of instruments: when it was last switched on or changed the instrument
+    let mut auto_select = false;
+    let mut instrument_shown_since = Instant::now();
+    // position of the touch while the display is touched, for the release event
+    let mut touch: Option<slint::LogicalPosition> = None;
+    // last raw and mapped touch position, shown with SHOW_TOUCH
+    let mut last_touch = None;
 
     loop {
         let frame_start = Instant::now();
@@ -328,24 +424,48 @@ async fn main(_spawner: Spawner) {
         // turns beyond the standard rate (3 degree per second), the ball swinging a little
         ui.set_turn_rate(triangle(frame_start, Duration::from_secs(30), 5.0));
         ui.set_slip(triangle(frame_start, Duration::from_secs(12), 0.6));
-        // demo: switch the instrument every 20 seconds, until the touch controller is used
-        // and the buttons in the menu area can be pressed
-        let instrument = (frame_start.as_secs() / 20 % 6) as i32;
-        if instrument != shown_instrument {
-            shown_instrument = instrument;
-            ui.set_instrument(instrument);
+        // automatic sequence (switch in the menu area): the next instrument every 20 seconds,
+        // counted from when the switch was turned on
+        if ui.get_auto_select() {
+            if !auto_select {
+                auto_select = true;
+                instrument_shown_since = frame_start;
+            } else if frame_start - instrument_shown_since >= INSTRUMENT_TIME {
+                ui.set_instrument((ui.get_instrument() + 1) % INSTRUMENTS);
+                instrument_shown_since = frame_start;
+            }
+        } else {
+            auto_select = false;
         }
-        // demo: night for 5 of every 15 seconds, until there is a switch or light sensor
-        let night = frame_start.as_secs() % 15 >= 10;
 
-        // at night the backlight is dimmed
-        if night != backlight_night {
-            backlight_night = night;
-            let brightness = if night {
-                BRIGHTNESS_NIGHT
-            } else {
-                BRIGHTNESS_DAY
-            };
+        // touch input, as pointer events of the left button: pressed when the touch starts,
+        // moved while it lasts, released where it ended (a click on the buttons)
+        let button = slint::platform::PointerEventButton::Left;
+        match (read_touch(spi, &mut touch_cs, &touch_irq), touch) {
+            (Some(raw), previous) => {
+                let position = touch_position(raw);
+                let event = match previous {
+                    None => slint::platform::WindowEvent::PointerPressed { position, button },
+                    Some(_) => slint::platform::WindowEvent::PointerMoved { position },
+                };
+                window.dispatch_event(event);
+                touch = Some(position);
+                last_touch = Some((raw, position));
+            }
+            (None, Some(position)) => {
+                window.dispatch_event(slint::platform::WindowEvent::PointerReleased {
+                    position,
+                    button,
+                });
+                touch = None;
+            }
+            (None, None) => {}
+        }
+
+        // backlight brightness from the slider in the menu area (5 to 100 %)
+        let selected_brightness = ui.get_brightness().clamp(5, 100) as u8;
+        if selected_brightness != brightness {
+            brightness = selected_brightness;
             let _ = backlight.set_duty_cycle_percent(brightness);
         }
 
@@ -359,7 +479,6 @@ async fn main(_spawner: Spawner) {
                 changed_rows = Some((origin.y as usize, origin.y as usize + size.height as usize));
             }
         });
-        let render_end = Instant::now();
         if let Some((first_row, end_row)) = changed_rows {
             // full rows are contiguous in the frame buffer, so they are sent with one transfer
             let rows = &frame_buffer[first_row * DISPLAY_WIDTH..end_row * DISPLAY_WIDTH];
@@ -380,25 +499,34 @@ async fn main(_spawner: Spawner) {
             )
             .await;
             frames += 1;
-            render_time += render_end - frame_start;
-            send_time += Instant::now() - render_end;
         }
 
         let elapsed = Instant::now() - statistics_start;
         if elapsed >= Duration::from_secs(1) && frames > 0 {
             let fps = frames as f32 * 1000.0 / elapsed.as_millis() as f32;
-            ui.set_status(slint::format!(
-                "{:.1} fps, render {} ms, send {} ms\nheap peak {} of {} KB",
-                fps,
-                render_time.as_millis() / frames as u64,
-                send_time.as_millis() / frames as u64,
-                HEAP_PEAK.load(Ordering::Relaxed) / 1024,
-                HEAP_SIZE / 1024,
-            ));
+            let heap_peak = HEAP_PEAK.load(Ordering::Relaxed) / 1024;
+            let status = match last_touch {
+                Some(((raw_x, raw_y, pressure), position)) if SHOW_TOUCH => slint::format!(
+                    "{:.1} fps, heap peak {} of {} KB\ntouch raw {}, {} z {} at {:.0}, {:.0}",
+                    fps,
+                    heap_peak,
+                    HEAP_SIZE / 1024,
+                    raw_x,
+                    raw_y,
+                    pressure,
+                    position.x,
+                    position.y,
+                ),
+                _ => slint::format!(
+                    "{:.1} fps, heap peak {} of {} KB",
+                    fps,
+                    heap_peak,
+                    HEAP_SIZE / 1024
+                ),
+            };
+            ui.set_status(status);
             statistics_start = Instant::now();
             frames = 0;
-            render_time = Duration::from_ticks(0);
-            send_time = Duration::from_ticks(0);
         }
 
         // wait only for the rest of the frame time, returns at once if the frame took longer

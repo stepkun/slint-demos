@@ -16,7 +16,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .renderer_name("software".into())
         .select()?;
 
-    let ui = AppWindow::new()?;
+    // all six instruments at once, in the standard layout
+    let ui = SixPack::new()?;
 
     // demo movement until real sensor values are available, the same as in the firmware
     let start = Instant::now();
