@@ -1,0 +1,32 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "web-demo"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+# The desktop app with all six instruments (ui/six-pack.slint) as WebAssembly for the browser,
+# built with wasm-pack, see README.md.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# the web backend of Slint (winit with a canvas), the same version as the desktop app
+slint = "1.18.1"
+wasm-bindgen = "0.2"
+# std::time::Instant panics on wasm32-unknown-unknown, this one uses the browser clock
+web-time = "1"
+
+[build-dependencies]
+slint-build = "1.18.1"
+
+# own workspace, so the crate is not taken as part of the desktop app in the repository root
+[workspace]
+
+[profile.release]
+# smaller download
+opt-level = "s"
+lto = true
+codegen-units = 1

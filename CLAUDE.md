@@ -12,6 +12,8 @@ The RP2040 is the target that matters: everything must work there.
 | `ui/` | Shared UI: `theme.slint` (global `Theme`), `attitude.slint`, `altimeter.slint`, `airspeed.slint`, `heading.slint`, `vertical-speed.slint`, `turn-coordinator.slint`, `test-app.slint` (`AppWindow` of the device: one instrument and the menu with the selector), `six-pack.slint` (`SixPack` of the desktop app: all six in the standard layout) |
 | `tools/dial-paths.py` | Generates the static tick and arc paths of the instruments (between the `BEGIN`/`END generated` markers) and checks they never overlap a hand box; `--check` fails if a file is not up to date |
 | `src/main.rs` | Desktop app with `SixPack`, uses the software renderer to show what the display will show |
+| `src/demo.rs` | Demo values of the instruments, shared by the desktop app and the web demo |
+| `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
@@ -29,8 +31,14 @@ cargo build --release                         # firmware, needs: rustup target a
 cargo run --release                           # flash, only with a Pico in BOOTSEL mode attached
 ```
 
-The firmware, `tools/host-check` and `issues/rp2040/partial-redraw-path` are separate
-crates (own `[workspace]`), build them from their own directory.
+The firmware, `tools/host-check`, `web` and `issues/rp2040/partial-redraw-path` are separate
+crates (own `[workspace]`), build them from their own directory. The web demo:
+
+```sh
+cd web
+wasm-pack build --target web --release        # needs: rustup target add wasm32-unknown-unknown
+python3 -m http.server 8000                   # then open http://localhost:8000
+```
 
 After changing the `.slint` files or the vendored crates, run the host check
 (see `tools/host-check/README.md`; it is built for i686, needs

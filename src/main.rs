@@ -8,6 +8,8 @@
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+mod demo;
+
 slint::include_modules!();
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -27,21 +29,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         slint::TimerMode::Repeated,
         Duration::from_millis(20),
         move || {
-            let Some(ui) = ui_handle.upgrade() else {
-                return;
-            };
-            let time = start.elapsed();
-            ui.set_roll(triangle(time, Duration::from_secs(8), 30.0));
-            ui.set_pitch(triangle(time, Duration::from_secs(5), 10.0));
-            ui.set_altitude(5000.0 + triangle(time, Duration::from_secs(60), 5000.0));
-            ui.set_airspeed(105.0 + triangle(time, Duration::from_secs(30), 75.0));
-            // a steady turn, once around per minute
-            ui.set_heading((time.as_millis() % 60_000) as f32 * 0.006);
-            // a little beyond the scale, so the needle reaches its stop
-            ui.set_vertical_speed(triangle(time, Duration::from_secs(40), 2200.0));
-            // turns beyond the standard rate (3 degree per second), the ball swinging a little
-            ui.set_turn_rate(triangle(time, Duration::from_secs(30), 5.0));
-            ui.set_slip(triangle(time, Duration::from_secs(12), 0.6));
+            if let Some(ui) = ui_handle.upgrade() {
+                show(&ui, demo::values(start.elapsed()));
+            }
         },
     );
 
@@ -50,14 +40,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Triangle wave between -amplitude and +amplitude with the given period
-fn triangle(time: Duration, period: Duration, amplitude: f32) -> f32 {
-    let period = period.as_millis();
-    let phase = (time.as_millis() % period) as f32 / period as f32;
-    let value = if phase < 0.5 {
-        phase * 4.0 - 1.0
-    } else {
-        3.0 - phase * 4.0
-    };
-    value * amplitude
+/// Shows the values on the instruments
+fn show(ui: &SixPack, values: demo::Values) {
+    ui.set_roll(values.roll);
+    ui.set_pitch(values.pitch);
+    ui.set_altitude(values.altitude);
+    ui.set_airspeed(values.airspeed);
+    ui.set_heading(values.heading);
+    ui.set_vertical_speed(values.vertical_speed);
+    ui.set_turn_rate(values.turn_rate);
+    ui.set_slip(values.slip);
 }
