@@ -36,6 +36,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             ui.set_airspeed(105.0 + triangle(time, Duration::from_secs(30), 75.0));
             // a steady turn, once around per minute
             ui.set_heading((time.as_millis() % 60_000) as f32 * 0.006);
+            // a little beyond the scale, so the needle reaches its stop
+            ui.set_vertical_speed(triangle(time, Duration::from_secs(40), 2200.0));
         },
     );
 

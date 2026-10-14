@@ -520,6 +520,31 @@ def airspeed():
     return Dial("ui/airspeed.slint", 0.79, hands, ticks, arcs, marks)
 
 
+# vertical speed scale, like ui/vertical-speed.slint: 0 at 9 o'clock, climb clockwise, descent
+# counterclockwise; 0 to 1000 fpm on 90 degree, 1000 to 2000 fpm compressed on 75 degree
+def vertical_speed_angle(fpm):
+    v = abs(fpm)
+    a = v * 0.09 if v <= 1000 else 90 + (v - 1000) * 0.075
+    return (270 + a if fpm >= 0 else 270 - a) % 360
+
+
+def vertical_speed():
+    # ticks every 100 fpm from -2000 to 2000 fpm, long and wide ones every 500 fpm
+    ticks = [
+        Tick(
+            vertical_speed_angle(fpm),
+            0.85 if fpm % 500 == 0 else 0.92,
+            1.0,
+            MARKING_WIDTH / 2 if fpm % 500 == 0 else MARKING_WIDTH / 4,
+            "Theme.marking",
+        )
+        # in the order around the dial, so the grouping joins neighbours
+        for fpm in range(-2000, 2001, 100)
+    ]
+    hands = [Hand(0.74, 0.66, 0.12, MARKING_WIDTH * 0.8)]
+    return Dial("ui/vertical-speed.slint", 0.79, hands, ticks)
+
+
 def heading():
     # card ticks every 5 degree, long and wide ones every 10 degree
     ticks = [
@@ -573,7 +598,7 @@ def main():
     check = "--check" in sys.argv[1:]
     root = Path(__file__).resolve().parent.parent
     outdated = []
-    for dial in (attitude(), altimeter(), airspeed(), heading()):
+    for dial in (attitude(), altimeter(), airspeed(), heading(), vertical_speed()):
         lines, report = generate(dial)
         print(report, file=sys.stderr)
         path = root / dial.file

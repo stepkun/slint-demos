@@ -27,9 +27,9 @@ Options:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--frames N` | 1250 | Number of animated frames |
+| `--frames N` | 1550 | Number of animated frames |
 | `--frame-ms MS` | 67 | Simulated time per frame (about 15 fps, like the firmware) |
-| `--instrument NAME` | all | Only `attitude`, `altimeter`, `airspeed` or `heading`; by default each is shown for 20 s, like in the firmware demo, then the first one again |
+| `--instrument NAME` | all | Only `attitude`, `altimeter`, `airspeed`, `heading` or `vertical-speed`; by default each is shown for 20 s, like in the firmware demo, then the first one again |
 | `--system-alloc` | – | Only count the allocations, with the system allocator, instead of using the TLSF heap of the firmware |
 | `--png FILE` | – | Save the last partially redrawn frame as PNG |
 
@@ -50,7 +50,7 @@ Slint is set up exactly like in the firmware:
   only the changed parts are redrawn
 - the demo loop of the firmware: roll as a triangle wave of ±30° over 8 s, pitch ±10° over 5 s,
   altitude 0 to 10000 ft over 60 s, airspeed 30 to 180 kt over 30 s, heading once around in
-  60 s, the instrument switched
+  60 s, vertical speed ±2200 fpm over 40 s, the instrument switched
   every 20 s, and the status line updated once per (simulated) second
 
 The time Slint sees is simulated, it advances by `--frame-ms` per frame.
@@ -68,24 +68,26 @@ system allocator, they are static in the firmware.
 Example output:
 
 ```
-host check: 240x320, 1250 frames of 67 ms, TLSF heap of the firmware
-heap after ui setup:          23.6 KB
-heap after last frame:        42.7 KB
-heap peak:                    56.0 KB (limit 92 KB)
-  attitude:                   54.1 KB
-  altimeter:                  51.0 KB
-  airspeed:                   56.0 KB
-  heading:                    54.4 KB
+host check: 240x320, 1550 frames of 67 ms, TLSF heap of the firmware
+heap after ui setup:          24.2 KB
+heap after last frame:        43.5 KB
+heap peak:                    56.9 KB (limit 92 KB)
+  attitude:                   51.8 KB
+  altimeter:                  51.9 KB
+  airspeed:                   56.9 KB
+  heading:                    55.3 KB
+  vertical-speed:             50.9 KB
 largest allocation, start:     8.0 KB (path buffers of the renderer)
 largest allocation, frames:    5.6 KB (limit 8 KB)
-allocations, first frame:   962
-allocations, later frames:  538.9 on average, 324 to 1391
-redrawn rows per frame:     132.2 of 320 on average
+allocations, first frame:   987
+allocations, later frames:  500.0 on average, 286 to 1407
+redrawn rows per frame:     118.2 of 320 on average
 partial vs. full redraw, at the end of each instrument (limit 1 colour step):
   attitude:                 3 pixels differ, largest difference 1 colour steps
   altimeter:                0 pixels differ, largest difference 0 colour steps
   airspeed:                 0 pixels differ, largest difference 0 colour steps
   heading:                  2 pixels differ, largest difference 1 colour steps
+  vertical-speed:           0 pixels differ, largest difference 0 colour steps
   attitude:                 3 pixels differ, largest difference 1 colour steps
 OK
 ```
