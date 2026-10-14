@@ -152,6 +152,13 @@ brightness is set in `src/main.rs`:
 Until there is a real switch or light sensor, the demo switches to night for 5 of every 15
 seconds.
 
+## Instruments
+
+The menu area has buttons to select the instrument (attitude indicator or altimeter). The touch
+controller isn't used yet, so the demo switches the instrument every 20 seconds instead. Only the
+selected instrument exists, so only its elements take heap. The altimeter shows a demo altitude
+going up and down between 0 and 10000 ft once a minute.
+
 ## Crash signals
 
 There is no debug output without a debug probe. The firmware therefore shows a crash through the
