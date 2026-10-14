@@ -17,6 +17,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # the static dial paths in ui/*.slint are generated, a changed generator or hand-edited
+  # paths must be regenerated, and no static box may overlap a hand
+  dial-paths:
+    name: generated dial paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: tools/dial-paths.py --check
+        if: hashFiles('tools/dial-paths.py') != ''
+        run: python3 tools/dial-paths.py --check
+
   check:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest

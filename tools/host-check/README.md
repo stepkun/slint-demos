@@ -17,8 +17,9 @@ Options:
 
 | Option | Default | Meaning |
 |---|---|---|
-| `--frames N` | 600 | Number of animated frames |
+| `--frames N` | 1000 | Number of animated frames |
 | `--frame-ms MS` | 67 | Simulated time per frame (about 15 fps, like the firmware) |
+| `--instrument NAME` | all | Only `attitude`, `altimeter` or `airspeed`; by default each is shown for 20 s, like in the firmware demo, then the first one again |
 | `--png FILE` | – | Save the last partially redrawn frame as PNG |
 
 Pass the options after `--`, for example `cargo run --release -- --png last.png`.
@@ -37,7 +38,8 @@ Slint is set up exactly like in the firmware:
 - 240x320 portrait, `Rgb565BigEndianPixel` frame buffer, `RepaintBufferType::ReusedBuffer`, so
   only the changed parts are redrawn
 - the demo loop of the firmware: roll as a triangle wave of ±30° over 8 s, pitch ±10° over 5 s,
-  and the status line updated once per (simulated) second
+  altitude 0 to 10000 ft over 60 s, airspeed 30 to 180 kt over 30 s, the instrument switched
+  every 20 s, and the status line updated once per (simulated) second
 
 The time Slint sees is simulated, it advances by `--frame-ms` per frame.
 
@@ -50,15 +52,22 @@ the firmware.
 Example output:
 
 ```
-host check: 240x320, 600 frames of 67 ms
-heap after ui setup:          12.0 KB
-heap after last frame:        42.2 KB
-heap peak:                    85.5 KB (limit 92 KB)
+host check: 240x320, 1000 frames of 67 ms
+heap after ui setup:          14.1 KB
+heap after last frame:        43.3 KB
+heap peak:                    88.6 KB (limit 92 KB)
+  attitude:                   88.6 KB
+  altimeter:                  72.3 KB
+  airspeed:                   84.3 KB
 largest single allocation:    24.0 KB (limit 24 KB)
-allocations, first frame:   1005
-allocations, later frames:  817.9 on average, 817 to 840
-redrawn rows per frame:     192.4 of 320 on average
-partial vs. full redraw:    3 pixels differ, largest difference 1 colour steps (limit 1)
+allocations, first frame:   989
+allocations, later frames:  545.6 on average, 322 to 1461
+redrawn rows per frame:     115.1 of 320 on average
+partial vs. full redraw, at the end of each instrument (limit 1 colour step):
+  attitude:                 3 pixels differ, largest difference 1 colour steps
+  altimeter:                0 pixels differ, largest difference 0 colour steps
+  airspeed:                 0 pixels differ, largest difference 0 colour steps
+  attitude:                 3 pixels differ, largest difference 1 colour steps
 OK
 ```
 
@@ -66,9 +75,9 @@ The check fails if
 
 | Check | Limit | Why |
 |---|---|---|
-| Heap peak | 92 KB | `HEAP_SIZE` of the firmware |
+| Heap peak | 92 KB | `HEAP_SIZE` of the firmware. The peak of each instrument is shown too; the frame that switches to an instrument, and so creates it, counts for it. |
 | Largest single allocation | 24 KB | Path masks are rasterized in bands of at most 24 KB (`MAX_MASK_BYTES` in the patched renderer). A larger block means a path mask isn't banded, and TLSF may not find a contiguous block that large. |
-| Partial vs. full redraw | 1 colour step | After the last frame the same state is rendered again from scratch (`RepaintBufferType::NewBuffer`) and compared per RGB565 channel. The banded path masks shift anti-aliased edges by one step, which is allowed. More means partial redraws leave artefacts, like the original 1.18.1 renderer does. |
+| Partial vs. full redraw | 1 colour step | After the last frame of each instrument the same state is rendered again from scratch (`RepaintBufferType::NewBuffer`) and compared per RGB565 channel. The banded path masks shift anti-aliased edges by one step, which is allowed. More means partial redraws leave artefacts, like the original 1.18.1 renderer does. |
 
 Each failed check prints a `FAIL:` line.
 

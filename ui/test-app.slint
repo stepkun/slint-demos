@@ -5,6 +5,7 @@
 
 import { Attitude } from "attitude.slint";
 import { Altimeter } from "altimeter.slint";
+import { Airspeed } from "airspeed.slint";
 import { Theme } from "theme.slint";
 // on MCUs there are no system fonts, so the font is embedded
 import "fonts/NotoSans-Regular.ttf";
@@ -16,7 +17,9 @@ export component AppWindow inherits Window {
     in property <angle> pitch: 0deg;
     // altitude in feet
     in property <float> altitude: 0;
-    // shown instrument: 0 attitude indicator, 1 altimeter
+    // indicated airspeed in knots
+    in property <float> airspeed: 0;
+    // shown instrument: 0 attitude indicator, 1 altimeter, 2 airspeed indicator
     // in-out, so the firmware can switch it while there is no touch input yet
     in-out property <int> instrument: 0;
     // default is the resolution of the waveshare rp2040 ResTouch 2.8" display
@@ -55,37 +58,40 @@ export component AppWindow inherits Window {
                 wrap: word-wrap;
             }
 
-            // instrument selector at the bottom of the menu area: two buttons side by side in
+            // instrument selector at the bottom of the menu area: buttons side by side in
             // portrait, stacked in landscape, large enough to be hit with a finger
-            // One frame, one highlight and one TouchArea for both buttons instead of a Rectangle
+            // One frame, one highlight and one TouchArea for all buttons instead of a Rectangle
             // and TouchArea per button: every element and binding costs heap on the RP2040.
+            // The order of the buttons is the order of the `instrument` values.
             Rectangle {
+                property <int> button_count: 3;
                 property <length> button_size: 36px;
+                property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
                 // index of the touched button, from the position in the frame
-                property <int> touched: (root.portrait ? touch.pressed-x * 2 / self.width : touch.pressed-y * 2 / self.height) >= 1 ? 1 : 0;
+                property <int> touched: max(0, min(self.button_count - 1, floor(root.portrait ? touch.pressed-x / self.button_width : touch.pressed-y / self.button_size)));
 
                 x: 4px;
                 y: parent.height - self.height - 4px;
                 width: parent.width - 8px;
-                height: root.portrait ? self.button_size : 2 * self.button_size;
+                height: root.portrait ? self.button_size : self.button_count * self.button_size;
                 border-radius: 4px;
                 border-width: 1px;
                 border-color: Theme.marking;
 
                 // highlight of the selected button
                 Rectangle {
-                    x: root.portrait ? root.instrument * parent.width / 2 : 0;
+                    x: root.portrait ? root.instrument * parent.button_width : 0;
                     y: root.portrait ? 0 : root.instrument * parent.button_size;
-                    width: root.portrait ? parent.width / 2 : parent.width;
+                    width: parent.button_width;
                     height: parent.button_size;
                     border-radius: 4px;
                     background: Theme.selected;
                 }
 
                 Text {
-                    x: 0;
-                    y: 0;
-                    width: root.portrait ? parent.width / 2 : parent.width;
+                    x: root.portrait ? 0 * parent.button_width : 0;
+                    y: root.portrait ? 0 : 0 * parent.button_size;
+                    width: parent.button_width;
                     height: parent.button_size;
                     text: "ATT";
                     color: Theme.marking;
@@ -95,11 +101,23 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    x: root.portrait ? parent.width / 2 : 0;
-                    y: root.portrait ? 0 : parent.button_size;
-                    width: root.portrait ? parent.width / 2 : parent.width;
+                    x: root.portrait ? 1 * parent.button_width : 0;
+                    y: root.portrait ? 0 : 1 * parent.button_size;
+                    width: parent.button_width;
                     height: parent.button_size;
                     text: "ALT";
+                    color: Theme.marking;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    x: root.portrait ? 2 * parent.button_width : 0;
+                    y: root.portrait ? 0 : 2 * parent.button_size;
+                    width: parent.button_width;
+                    height: parent.button_size;
+                    text: "IAS";
                     color: Theme.marking;
                     font-size: 12px;
                     horizontal-alignment: center;
@@ -130,6 +148,10 @@ export component AppWindow inherits Window {
 
             if root.instrument == 1: Altimeter {
                 altitude: root.altitude;
+            }
+
+            if root.instrument == 2: Airspeed {
+                airspeed: root.airspeed;
             }
         }
     }
