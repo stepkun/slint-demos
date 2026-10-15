@@ -4,9 +4,9 @@ Firmware that shows the instrument UI from `../../../ui` on a DFRobot UNIHIKER K
 with a 2.8" display).
 
 It runs the same UI and demo as the Pico firmwares in `../../rp2040` and `../../rp2350`, with the
-same patched Slint crates from the `vendor/` directory of the RP2040 firmware. Their READMEs
-describe the renderer patches and the performance work; this one lists what is different on
-the K10.
+same patched Slint crates from [`../../vendor`](../../vendor/README.md), whose README describes
+the renderer patches. The READMEs of the Picos describe the performance work; this one lists
+what is different on the K10.
 
 ## Hardware
 
@@ -66,10 +66,20 @@ The K10 has no touch screen, so the touch buttons of the menu area can't be used
 |---|---|
 | A | previous instrument, switches the automatic sequence off |
 | B | next instrument, switches the automatic sequence off |
-| A and B together | switches the automatic sequence on |
+| A and B together | switches the automatic sequence on or off |
+| A held (0.5 s) | brighter, 5 % every 0.1 s while held |
+| B held (0.5 s) | dimmer, 5 % every 0.1 s while held |
 
-The action happens when the buttons are released. The backlight can only be switched on and
-off, so the brightness slider in the menu area has no effect.
+Short presses act when the buttons are released, a long press doesn't change the instrument.
+The brightness slider in the menu area shows the brightness (5 to 100 %).
+
+The backlight is wired to an on/off pin of the IO expander, without PWM, so a timer interrupt
+switches it on and off at 200 Hz: on at the start of each 5 ms period, off after the brightness
+part of it. Each switch is one I2C write of about 70 µs (the output register of port 0 is
+cached), two per period, about 3 % of the CPU; at 100 % the expander isn't written at all. The
+interrupt and the button reading share the I2C bus through a critical section. The brightness
+command of the ILI9341 (0x51) has no effect on the K10, its CABC output isn't connected to the
+backlight.
 
 ## Differences to the Pico firmwares
 
@@ -81,7 +91,7 @@ off, so the brightness slider in the menu area has no effect.
 | Clock | 200 MHz / 150 MHz | 240 MHz |
 | Display | ST7789, 100 MHz / 75 MHz SPI | ILI9341, 40 MHz SPI (pins through the GPIO matrix), DMA through an 8 KB copy buffer |
 | Input | touch (XPT2046) | buttons A and B on the IO expander |
-| Backlight | PWM, brightness slider | on/off on the IO expander |
+| Backlight | PWM, brightness slider | on/off on the IO expander, switched at 200 Hz by a timer interrupt (long press of A or B) |
 | Heap | 92 KB / 256 KB | 112 KB |
 | Crash signal | backlight blinking or dark | panic message on the USB serial port |
 
@@ -105,7 +115,7 @@ still be checked with `tools/host-check`, which simulates the RP2040. The 8 MB P
 
 ## Status
 
-Shows the instruments on a K10. With the 180° rotation alone the picture was mirrored
-horizontally, so the orientation also flips it (`Orientation::new().rotate(Rotation::Deg180)
-.flip_horizontal()` in `src/main.rs`). If the colors look wrong (red and blue swapped), change
-`ColorOrder::Bgr` to `ColorOrder::Rgb`.
+Runs on a K10: display, buttons A and B (instruments, AUTO, brightness) and the dimmed
+backlight work. With DFRobot's 180° rotation alone the picture was mirrored horizontally; a
+180° rotation with a horizontal flip is the same as a vertical flip only, which the firmware
+uses (`Orientation::new().flip_vertical()` in `src/main.rs`).

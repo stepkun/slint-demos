@@ -46,7 +46,7 @@ Slint is set up exactly like in the firmware:
 
 - `no_std` Slint 1.18.1 with the same features (`compat-1-2`, `unsafe-single-threaded`, `libm`,
   `renderer-software`, `software-renderer-path`), resources embedded for the software renderer
-- the same `[patch.crates-io]` entries, pointing to the firmware's `vendor/` directory
+- the same `[patch.crates-io]` entries, pointing to `../../firmware/vendor`
   (`i-slint-core`, `zeno` and the patched `i-slint-renderer-software`)
 - 240x320 portrait, `Rgb565BigEndianPixel` frame buffer, `RepaintBufferType::ReusedBuffer`, so
   only the changed parts are redrawn
