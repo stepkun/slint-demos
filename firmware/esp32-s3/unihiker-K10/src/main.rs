@@ -28,7 +28,7 @@ use esp_hal::time::{Duration, Instant, Rate};
 use esp_hal::{Blocking, dma_rx_buffer, dma_tx_buffer, main};
 use mipidsi::interface::SpiInterface;
 use mipidsi::models::ILI9341Rgb565;
-use mipidsi::options::{ColorInversion, ColorOrder, Orientation, Rotation};
+use mipidsi::options::{ColorInversion, ColorOrder, Orientation};
 use slint::platform::software_renderer::{
     MinimalSoftwareWindow, RepaintBufferType, Rgb565BigEndianPixel,
 };
