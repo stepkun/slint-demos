@@ -15,6 +15,7 @@ The RP2040 is the target that matters: everything must work there.
 | `src/demo.rs` | Demo values of the instruments, shared by the desktop app and the web demo |
 | `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
+| `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate, uses the `vendor/` crates of the RP2040 firmware |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
@@ -29,9 +30,17 @@ cargo build                                   # desktop app (root crate)
 cd firmware/rp2040/waveshare-ResTouch-LCD-2.8
 cargo build --release                         # firmware, needs: rustup target add thumbv6m-none-eabi
 cargo run --release                           # flash, only with a Pico in BOOTSEL mode attached
+cd ../../rp2350/waveshare-ResTouch-LCD-2.8
+cargo build --release                         # Pico 2, needs: rustup target add thumbv8m.main-none-eabihf
+cargo run --release                           # flash with picotool 2.x, Pico 2 in BOOTSEL mode
 ```
 
-The firmware, `tools/host-check`, `web` and `issues/rp2040/partial-redraw-path` are separate
+The RP2350 firmware is a copy of the RP2040 one with the chip specific parts changed (target,
+`memory.x` with the `IMAGE_DEF` block, clocks, heap, register addresses of the panic handler),
+see its README. Keep both `src/main.rs` in step when changing the display, touch or menu code.
+The RP2040, with its 92 KB heap, stays the target the UI has to fit.
+
+The firmwares, `tools/host-check`, `web` and `issues/rp2040/partial-redraw-path` are separate
 crates (own `[workspace]`), build them from their own directory. The web demo:
 
 ```sh
@@ -104,8 +113,8 @@ rotation or scaling transforms.
 - **Moving parts get tight boxes that follow them,** and static paths are grouped so that their
   boxes never overlap a moving box (checked by `tools/dial-paths.py` for every hand angle).
 - **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts. The
-  glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of the firmware and of
-  `tools/host-check`), the font sizes of `Theme` (12, 14 and 20 px); a size in between falls
+  glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of both firmwares and
+  of `tools/host-check`), the font sizes of `Theme` (12, 14 and 20 px); a size in between falls
   back to the next smaller one. Keep them in sync, and round scaled font sizes to whole pixels.
 - Use the colours, widths and font sizes from `Theme`, don't hard-code them. Widths and font
   sizes are those at `Theme.reference_size` (the display); the instruments multiply them by
