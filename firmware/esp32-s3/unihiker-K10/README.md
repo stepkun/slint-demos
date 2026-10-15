@@ -4,9 +4,9 @@ Firmware that shows the instrument UI from `../../../ui` on a DFRobot UNIHIKER K
 with a 2.8" display).
 
 It runs the same UI and demo as the Pico firmwares in `../../rp2040` and `../../rp2350`, with the
-same patched Slint crates from the `vendor/` directory of the RP2040 firmware. Their READMEs
-describe the renderer patches and the performance work; this one lists what is different on
-the K10.
+same patched Slint crates from [`../../vendor`](../../vendor/README.md), whose README describes
+the renderer patches. The READMEs of the Picos describe the performance work; this one lists
+what is different on the K10.
 
 ## Hardware
 

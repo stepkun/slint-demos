@@ -26,12 +26,12 @@ slint = { version = "1.18.1", default-features = false, features = ["compat-1-2"
 [build-dependencies]
 slint-build = "1.18.1"
 
-# the same patched crates as the RP2040 firmware, used from its vendor directory, so all
-# firmwares (and tools/host-check) run the same renderer, see its README.md
+# the patched crates in firmware/vendor, shared by all firmwares and tools/host-check, so they
+# always run the same renderer, see firmware/vendor/README.md
 [patch.crates-io]
-i-slint-core = { path = "../../rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core" }
-zeno = { path = "../../rp2040/waveshare-ResTouch-LCD-2.8/vendor/zeno" }
-i-slint-renderer-software = { path = "../../rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-renderer-software" }
+i-slint-core = { path = "../../vendor/i-slint-core" }
+zeno = { path = "../../vendor/zeno" }
+i-slint-renderer-software = { path = "../../vendor/i-slint-renderer-software" }
 
 [profile.release]
 # the ESP32-S3 has enough flash, debug info doesn't end up on the device

@@ -5,9 +5,10 @@ with a Waveshare Pico-ResTouch-LCD-2.8.
 
 It is the RP2040 firmware in `../../rp2040/waveshare-ResTouch-LCD-2.8` with only the chip
 specific parts changed: the display, touch, backlight, menu and demo work the same, and it uses
-the same patched Slint crates from the `vendor/` directory of the RP2040 firmware. Its
-[README](../../rp2040/waveshare-ResTouch-LCD-2.8/README.md) describes the display, the touch
-calibration, the performance work and the patches; this one only lists the differences.
+the same patched Slint crates from `../../vendor`. The
+[README](../../rp2040/waveshare-ResTouch-LCD-2.8/README.md) of the RP2040 firmware describes the
+display, the touch calibration and the performance work, the one in
+[`../../vendor`](../../vendor/README.md) the patches; this one only lists the differences.
 
 ## Hardware
 

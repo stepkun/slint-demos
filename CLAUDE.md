@@ -14,15 +14,16 @@ The RP2040 is the target that matters: everything must work there.
 | `src/main.rs` | Desktop app with `SixPack`, uses the software renderer to show what the display will show |
 | `src/demo.rs` | Demo values of the instruments, shared by the desktop app and the web demo |
 | `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
-| `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
-| `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate, uses the `vendor/` crates of the RP2040 firmware |
-| `firmware/esp32-s3/unihiker-K10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate, uses the `vendor/` crates of the RP2040 firmware |
+| `firmware/vendor/` | Patched Slint crates (`i-slint-core`, `i-slint-renderer-software`, `zeno`), shared by all firmwares and `tools/host-check` through `[patch.crates-io]`, see its README |
+| `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir |
+| `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate |
+| `firmware/esp32-s3/unihiker-K10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
 
-The firmware `README.md` documents hardware, clocks, memory, performance and the vendored
-patches in detail. Read it before changing anything that runs on the device.
+The firmware `README.md` documents hardware, clocks, memory and performance in detail,
+`firmware/vendor/README.md` the patches. Read it before changing anything that runs on the device.
 
 ## Build
 
@@ -135,8 +136,8 @@ rotation or scaling transforms.
 
 - Rendering uses a full frame buffer (line-by-line rendering skips paths) with
   `RepaintBufferType::ReusedBuffer`; only changed rows are sent by DMA.
-- Partial redraws with paths only work with the vendored, patched `i-slint-renderer-software`.
-  Don't remove the `[patch.crates-io]` entries.
+- Partial redraws with paths only work with the patched `i-slint-renderer-software` in
+  `firmware/vendor`. Don't remove the `[patch.crates-io]` entries.
 - Chip select must be toggled for each transfer (shared SPI1 with the touch controller).
 - Touch: XPT2046 on SPI1 (CS GP16, interrupt GP17, MISO GP12), read at 2 MHz only while touched,
   passed to Slint as pointer events. Affine calibration `TOUCH_CALIBRATION` and `SHOW_TOUCH` in
