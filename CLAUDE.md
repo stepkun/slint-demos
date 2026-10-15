@@ -16,7 +16,7 @@ The RP2040 is the target that matters: everything must work there.
 | `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
 | `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate, uses the `vendor/` crates of the RP2040 firmware |
-| `firmware/esp32-s3/unihiker-k10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate, uses the `vendor/` crates of the RP2040 firmware |
+| `firmware/esp32-s3/unihiker-K10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate, uses the `vendor/` crates of the RP2040 firmware |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
@@ -34,7 +34,7 @@ cargo run --release                           # flash, only with a Pico in BOOTS
 cd ../../rp2350/waveshare-ResTouch-LCD-2.8
 cargo build --release                         # Pico 2, needs: rustup target add thumbv8m.main-none-eabihf
 cargo run --release                           # flash with picotool 2.x, Pico 2 in BOOTSEL mode
-cd ../../esp32-s3/unihiker-k10
+cd ../../esp32-s3/unihiker-K10
 cargo build --release                         # K10, needs: espup install --targets esp32s3 --toolchain-version 1.95.0.0
 cargo run --release                           # flash with espflash, K10 on USB
 ```

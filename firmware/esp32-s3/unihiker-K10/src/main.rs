@@ -302,7 +302,7 @@ fn main() -> ! {
     // mipidsi is only used to initialize the display
     let display = mipidsi::Builder::new(ILI9341Rgb565, interface)
         .display_size(240, 320)
-        .orientation(Orientation::new().rotate(Rotation::Deg180).flip_horizontal())
+        .orientation(Orientation::new().flip_vertical())
         .color_order(ColorOrder::Bgr)
         .invert_colors(ColorInversion::Normal)
         .init(&mut delay.clone())

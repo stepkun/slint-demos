@@ -50,7 +50,7 @@ newer compiler puts its literals into flash).
 Connect the K10 by USB, then:
 
 ```sh
-cd firmware/esp32-s3/unihiker-k10
+cd firmware/esp32-s3/unihiker-K10
 cargo run --release
 ```
 
