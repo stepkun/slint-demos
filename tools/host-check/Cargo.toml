@@ -24,9 +24,9 @@ slint-build = "=1.18.1"
 # own workspace, so the crate is not taken as part of the desktop app in the repository root
 [workspace]
 
-# the same patches as in firmware/rp2040/waveshare-ResTouch-LCD-2.8/Cargo.toml,
-# keep both in sync, otherwise this check doesn't test what runs on the device
+# the same patches as in the Cargo.toml of the firmwares (the crates in firmware/vendor),
+# keep them in sync, otherwise this check doesn't test what runs on the device
 [patch.crates-io]
-i-slint-core = { path = "../../firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core" }
-zeno = { path = "../../firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/zeno" }
-i-slint-renderer-software = { path = "../../firmware/rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-renderer-software" }
+i-slint-core = { path = "../../firmware/vendor/i-slint-core" }
+zeno = { path = "../../firmware/vendor/zeno" }
+i-slint-renderer-software = { path = "../../firmware/vendor/i-slint-renderer-software" }

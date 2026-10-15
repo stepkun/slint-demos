@@ -27,12 +27,14 @@ slint-build = "1.18.1"
 # Slint 1.18.1 does not compile for no_std with the `software-renderer-path` feature
 # (f32::rem_euclid in graphics/path.rs), the vendored copy contains a one-line fix.
 # Remove this once a fixed Slint release is available.
+# The patched crates are in firmware/vendor, shared by all firmwares and tools/host-check, see
+# firmware/vendor/README.md.
 [patch.crates-io]
-i-slint-core = { path = "vendor/i-slint-core" }
+i-slint-core = { path = "../../vendor/i-slint-core" }
 # zeno 0.3.3 (path rasterizer of the software renderer) keeps about 18 KB on the stack,
 # which overflows into the frame buffer, the vendored copy uses heap storage instead
-zeno = { path = "vendor/zeno" }
+zeno = { path = "../../vendor/zeno" }
 # software renderer 1.18.1 with fixes and speed-ups for MCUs, see README.md:
 # paths only blended in the redrawn region (partial redraw bug), path masks in bands of limited
 # size, strokes converted to outlines once, coverage scaling without divisions
-i-slint-renderer-software = { path = "vendor/i-slint-renderer-software" }
+i-slint-renderer-software = { path = "../../vendor/i-slint-renderer-software" }

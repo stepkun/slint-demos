@@ -1,7 +1,10 @@
 # Instruments firmware
 
 Firmware that shows the instrument UI from `../../../ui` on a Raspberry Pi Pico W with a
-Waveshare Pico-ResTouch-LCD-2.8.
+Waveshare Pico-ResTouch-LCD-2.8. The same firmware for the Raspberry Pi Pico 2 (RP2350) is in
+[`../../rp2350/waveshare-ResTouch-LCD-2.8`](../../rp2350/waveshare-ResTouch-LCD-2.8/README.md),
+the same UI on a DFRobot UNIHIKER K10 (ESP32-S3) in
+[`../../esp32-s3/unihiker-K10`](../../esp32-s3/unihiker-K10/README.md).
 
 ## Hardware
 
@@ -263,11 +266,13 @@ Each frame is sent to the display by DMA, so the CPU isn't busy during the trans
 The menu area shows a status line, updated once per second:
 
 ```
-14.8 fps, heap peak 67 of 92 KB
+14.8 fps, heap peak 61 of 92 KB
 ```
 
 - **fps:** frames drawn and sent per second.
-- **heap peak:** highest heap use since the start, measured in the allocator.
+- **heap peak:** highest heap use since the start, measured in the allocator (requested bytes,
+  without the TLSF overhead). It reaches 61 KB when switching between the instruments at
+  random; in the host check the airspeed indicator needs the most.
 
 Render and send times were shown too while the performance was tuned (the table below). They
 were removed to make room in the menu area; measure them again with temporary timing points.
@@ -305,8 +310,17 @@ The RP2040 has 264 KB of RAM, used like this:
 
 The heap peak in the status line counts the requested bytes. The TLSF allocator needs about 20 %
 more for its block headers and alignment. `tools/host-check` runs the same allocator in a 92 KB
-block on the host (32-bit, like the RP2040) and fails if it runs out: with all three instruments
-the peak is about 57 KB requested and was about 76 KB including the overhead (measured once).
+block on the host (32-bit, like the RP2040) and fails if it runs out. Switching between all six
+instruments at random, the peak is 61 KB requested on the device and 59 KB in the host check
+(`--random`); the device allocates a little more and in a different order. Including the overhead it was about 76 KB in an older
+measurement, with a peak of 57 KB requested.
+
+Keep room for these differences. The host check passes down to a heap of 83 KB, for the demo
+sequence and for switching at random (`--heap-kb`, `--random`, see
+`../../../tools/host-check/README.md`), 9 KB to spare, and the device runs. With 4 KB to spare
+it crashed at the airspeed indicator. Switching at random also has to work: an instrument
+written above the shown one in `ui/test-app.slint` was once created before the old one was
+destroyed, and both together didn't fit; `test-app.slint` now removes the old one first.
 
 ### Heap fragmentation
 
@@ -326,7 +340,7 @@ Slint's software renderer (1.18.1) has some limitations that shape this firmware
 - **`Path` elements need a full frame buffer.** Line-by-line rendering silently skips them.
 - **Partial redraws only work with the patched renderer.** The original blends paths again
   outside the redrawn region, so their edges build up. See
-  `../../../issues/rp2040/partial-redraw-path` and [Vendored patches](#vendored-patches).
+  `../../../issues/rp2040/partial-redraw-path` and [the vendored patches](../../vendor/README.md).
 - **No rotation or scaling transforms.** Rotated parts of the UI are calculated with `sin()` and
   `cos()` instead.
 
@@ -354,34 +368,11 @@ These come from measuring on the device. They matter for everything that is redr
 
 ## Vendored patches
 
-`vendor/` contains three patched crates, wired in through `[patch.crates-io]` in `Cargo.toml`.
-Each change is marked with a `patched:` comment in the source.
-
-| Crate | Why | Remove when |
-|---|---|---|
-| `i-slint-core` 1.18.1 | `no_std` with `software-renderer-path` doesn't compile (`f32::rem_euclid`) | Slint 1.19 is released (already fixed there) |
-| `i-slint-renderer-software` 1.18.1 | See below | The changes are in a Slint release (worth offering upstream) |
-| `zeno` 0.3.3 | Its rasterizer keeps about 18 KB on the stack, which overflows into the frame buffer. The patch uses heap storage with 1024 reserved cells, and adds `Scratch::with_capacity`, so the renderer can keep the cells. | Never, unless zeno or Slint change this |
-
-Changes in the software renderer (`lib.rs` and `path.rs`):
-
-- **Partial redraw fix:** paths are only blended into the non-overlapping parts of the redrawn
-  region, like all other elements. Without it, partial redraws make path edges build up.
-- **Path masks in bands:** only the part of a path inside the redrawn region is rasterized, in
-  horizontal bands of at most 8 KB (`MAX_MASK_BYTES`). The original allocated one mask for the
-  whole path box. This bounds memory and skips work outside the redrawn region.
-- **Path buffers kept:** the mask, the rasterizer cells (`zeno::Scratch`, 512 cells reserved)
-  and the outline of strokes are allocated once with the renderer (`PathBuffers`) instead of for
-  every path, see [Heap fragmentation](#heap-fragmentation).
-- **Strokes converted to outlines once** (`zeno::apply`), so the bands only rasterize the filled
-  outline instead of stroking the path again for each band.
-- **Coverage scaling without divisions:** `(v + (v >> 8) + 1) >> 8` instead of `v / 255`. It
-  gives the same result for all products of two `u8`.
-
-Compared with the original renderer, a few pixels at anti-aliased edges differ by one colour
-step, because the path is shifted into each band. That isn't visible.
+The patched crates (`i-slint-core`, `i-slint-renderer-software` and `zeno`) are in
+`../../vendor`, shared by all firmwares and `tools/host-check`; their
+[README](../../vendor/README.md) lists the changes and when they can be removed.
 
 ## License
 
-GPL-3.0-only, like the whole project (see [LICENSE](../../../LICENSE)). The vendored crates keep
-their own licenses, see the main [README](../../../README.md#license).
+GPL-3.0-only, like the whole project (see [LICENSE](../../../LICENSE)). The vendored crates in
+`../../vendor` keep their own licenses, see the main [README](../../../README.md#license).

@@ -12,8 +12,10 @@ export component Attitude inherits Rectangle {
 
     property <length> size: min(self.width, self.height);
     property <length> outer_thickness: size * Theme.ring_ratio;
-    property <float> outer_radius: (size - outer_thickness) / 2px;
     property <float> size_float: size / 1px;
+    // widths and font sizes are those of Theme at Theme.reference_size, scaled with the size of
+    // the instrument, so it keeps its proportions on the desktop; exactly 1 on the device
+    property <float> scale: size / Theme.reference_size;
 
     // inner part, all values in viewbox units
     // the geometry is calculated instead of using transform-rotation,
@@ -54,652 +56,651 @@ export component Attitude inherits Rectangle {
     // command strings: formatting and parsing the numbers of a string is slow on the RP2040.
     // (Path elements can't be created with `for` yet, so they are written out.)
 
-    // distance of a pitch ladder line from the center, positive pitch lines are above the horizon
-    pure function ladder_offset(step: int) -> float {
-        return pitch_offset - step * pitch_scale;
-    }
-
-    // half length of a pitch ladder line, `length` relative to the inner radius,
-    // zero (nothing drawn) if the line is not completely inside the inner circle
-    pure function ladder_half(step: int, length: float) -> float {
-        return visible_half(ladder_offset(step), inner_radius * length);
-    }
-    pure function visible_half(offset: float, half_width: float) -> float {
-        return offset * offset + half_width * half_width < 0.9 * inner_radius * inner_radius ? half_width : 0;
-    }
-
-    // end points of a pitch ladder line, side is -1 for the left and 1 for the right end
-    // extra long lines (0.30) every 20 degree, long lines (0.20) every 10 degree,
-    // short lines (0.10) in between
-    pure function ladder_x(step: int, length: float, side: float) -> float {
-        return center + ladder_offset(step) * nx + side * ladder_half(step, length) * ux;
-    }
-    pure function ladder_y(step: int, length: float, side: float) -> float {
-        return center + ladder_offset(step) * ny + side * ladder_half(step, length) * uy;
-    }
+    // Pitch ladder: lines every 5 degree from -30 to 30, extra long (0.30 of the inner radius)
+    // every 20 degree, long (0.20) every 10 degree, short (0.10) in between. A line is drawn
+    // only while it is completely inside 0.95 of the inner radius:
+    // offset² + (length · r)² < 0.9 r² with offset = r / 25 · (pitch - step) is the same as
+    // |pitch - step| < 25 · sqrt(0.9 - length²), i.e. 23.585 (short), 23.184 (long) and
+    // 22.5 degree (extra long); otherwise both ends are the same point and nothing is drawn.
+    // The coordinates are written out instead of calling functions: in a function every call
+    // reads the properties again, and each read costs a dependency node of heap.
 
     background: transparent;    // show background of parent
 
-    // upper half outer ring: a circle border, clipped to the upper half
+    // all parts in a square of `size`, centered in the area the instrument is given
     Rectangle {
-        x: 0px;
-        y: 0px;
-        width: size;
-        height: size / 2;
-        clip: true;
+        x: (root.width - root.size) / 2;
+        y: (root.height - root.size) / 2;
+        width: root.size;
+        height: root.size;
 
+        // upper half outer ring: a circle border, clipped to the upper half
         Rectangle {
             x: 0px;
             y: 0px;
             width: size;
-            height: size;
-            border-radius: size / 2;
-            border-width: outer_thickness;
-            border-color: Theme.sky;
+            height: size / 2;
+            clip: true;
+
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: size;
+                height: size;
+                border-radius: size / 2;
+                // 2px wider than the ring, under the inner sky disc (which is 1px smaller than the
+                // inner circle): with anti-aliased edges at the same radius the background would show
+                // through as a thin circle
+                border-width: outer_thickness + 2px;
+                border-color: Theme.sky;
+            }
         }
-    }
 
-    // lower half outer ring: a circle border, clipped to the lower half
-    Rectangle {
-        x: 0px;
-        y: size / 2;
-        width: size;
-        height: size / 2;
-        clip: true;
-
+        // lower half outer ring: a circle border, clipped to the lower half
         Rectangle {
             x: 0px;
-            y: -size / 2;
+            y: size / 2;
             width: size;
-            height: size;
-            border-radius: size / 2;
-            border-width: outer_thickness;
-            border-color: Theme.ground;
+            height: size / 2;
+            clip: true;
+
+            Rectangle {
+                x: 0px;
+                y: -size / 2;
+                width: size;
+                height: size;
+                border-radius: size / 2;
+                // 2px under the inner disc, see above
+                border-width: outer_thickness + 2px;
+                border-color: Theme.ground;
+            }
+        }
+
+        // Bank ticks, in four paths with tight boxes: the ticks are static, and a box overlapping
+        // the moving inner disc would make them be redrawn every frame. Separate Tick components
+        // would be simpler, but each instance costs several KB of heap.
+        // The ticks are thin filled quadrilaterals (the same as a stroke with butt caps), the
+        // viewboxes are tight (1 unit margin), without a stroke the box is the viewbox.
+        // The coordinates are `size_float * A + B` with precomputed A and B, so each binding depends
+        // on one property only: the dependencies of bindings that use `center`, `inner_radius` and
+        // functions cost a lot more heap. Run tools/dial-paths.py again after changing the ticks,
+        // Theme.ring_ratio or Theme.marking_width.
+
+        // BEGIN generated by tools/dial-paths.py, do not edit
+        // 0deg
+        Path {
+            viewbox-x: size_float * 0.493750 - 1.0000;
+            viewbox-y: -1.0000;
+            viewbox-width: size_float * 0.012500 + 2.0000;
+            viewbox-height: size_float * 0.100000 + 2.0000;
+            x: self.viewbox-x * 1px;
+            y: self.viewbox-y * 1px;
+            width: self.viewbox-width * 1px;
+            height: self.viewbox-height * 1px;
+            fill: Theme.marking;
+
+            MoveTo {
+                x: size_float * 0.493750;
+                y: size_float * 0.100000;
+            }
+
+            LineTo {
+                x: size_float * 0.493750;
+                y: 0.0000;
+            }
+
+            LineTo {
+                x: size_float * 0.506250;
+                y: 0.0000;
+            }
+
+            LineTo {
+                x: size_float * 0.506250;
+                y: size_float * 0.100000;
+            }
+
+            Close { }
+        }
+
+        // -20deg, -10deg, 10deg, 20deg
+        Path {
+            viewbox-x: size_float * 0.326053 - 1.0000;
+            viewbox-y: size_float * 0.007053 - 1.0000;
+            viewbox-width: size_float * 0.347893 + 2.0000;
+            viewbox-height: size_float * 0.118138 + 2.0000;
+            x: self.viewbox-x * 1px;
+            y: self.viewbox-y * 1px;
+            width: self.viewbox-width * 1px;
+            height: self.viewbox-height * 1px;
+            fill: Theme.marking;
+
+            MoveTo {
+                x: size_float * 0.360255;
+                y: size_float * 0.125192;
+            }
+
+            LineTo {
+                x: size_float * 0.326053;
+                y: size_float * 0.031223;
+            }
+
+            LineTo {
+                x: size_float * 0.331926;
+                y: size_float * 0.029085;
+            }
+
+            LineTo {
+                x: size_float * 0.366128;
+                y: size_float * 0.123054;
+            }
+
+            Close { }
+
+            MoveTo {
+                x: size_float * 0.427463;
+                y: size_float * 0.106620;
+            }
+
+            LineTo {
+                x: size_float * 0.410098;
+                y: size_float * 0.008139;
+            }
+
+            LineTo {
+                x: size_float * 0.416253;
+                y: size_float * 0.007053;
+            }
+
+            LineTo {
+                x: size_float * 0.433618;
+                y: size_float * 0.105534;
+            }
+
+            Close { }
+
+            MoveTo {
+                x: size_float * 0.566382;
+                y: size_float * 0.105534;
+            }
+
+            LineTo {
+                x: size_float * 0.583747;
+                y: size_float * 0.007053;
+            }
+
+            LineTo {
+                x: size_float * 0.589902;
+                y: size_float * 0.008139;
+            }
+
+            LineTo {
+                x: size_float * 0.572537;
+                y: size_float * 0.106620;
+            }
+
+            Close { }
+
+            MoveTo {
+                x: size_float * 0.633872;
+                y: size_float * 0.123054;
+            }
+
+            LineTo {
+                x: size_float * 0.668074;
+                y: size_float * 0.029085;
+            }
+
+            LineTo {
+                x: size_float * 0.673947;
+                y: size_float * 0.031223;
+            }
+
+            LineTo {
+                x: size_float * 0.639745;
+                y: size_float * 0.125192;
+            }
+
+            Close { }
+        }
+
+        // -60deg, -30deg
+        Path {
+            viewbox-x: size_float * 0.063862 - 1.0000;
+            viewbox-y: size_float * 0.063862 - 1.0000;
+            viewbox-width: size_float * 0.241550 + 2.0000;
+            viewbox-height: size_float * 0.241550 + 2.0000;
+            x: self.viewbox-x * 1px;
+            y: self.viewbox-y * 1px;
+            width: self.viewbox-width * 1px;
+            height: self.viewbox-height * 1px;
+            fill: Theme.marking;
+
+            MoveTo {
+                x: size_float * 0.150465;
+                y: size_float * 0.305413;
+            }
+
+            LineTo {
+                x: size_float * 0.063862;
+                y: size_float * 0.255413;
+            }
+
+            LineTo {
+                x: size_float * 0.070112;
+                y: size_float * 0.244587;
+            }
+
+            LineTo {
+                x: size_float * 0.156715;
+                y: size_float * 0.294587;
+            }
+
+            Close { }
+
+            MoveTo {
+                x: size_float * 0.294587;
+                y: size_float * 0.156715;
+            }
+
+            LineTo {
+                x: size_float * 0.244587;
+                y: size_float * 0.070112;
+            }
+
+            LineTo {
+                x: size_float * 0.255413;
+                y: size_float * 0.063862;
+            }
+
+            LineTo {
+                x: size_float * 0.305413;
+                y: size_float * 0.150465;
+            }
+
+            Close { }
+        }
+
+        // 30deg, 60deg
+        Path {
+            viewbox-x: size_float * 0.694587 - 1.0000;
+            viewbox-y: size_float * 0.063862 - 1.0000;
+            viewbox-width: size_float * 0.241550 + 2.0000;
+            viewbox-height: size_float * 0.241550 + 2.0000;
+            x: self.viewbox-x * 1px;
+            y: self.viewbox-y * 1px;
+            width: self.viewbox-width * 1px;
+            height: self.viewbox-height * 1px;
+            fill: Theme.marking;
+
+            MoveTo {
+                x: size_float * 0.694587;
+                y: size_float * 0.150465;
+            }
+
+            LineTo {
+                x: size_float * 0.744587;
+                y: size_float * 0.063862;
+            }
+
+            LineTo {
+                x: size_float * 0.755413;
+                y: size_float * 0.070112;
+            }
+
+            LineTo {
+                x: size_float * 0.705413;
+                y: size_float * 0.156715;
+            }
+
+            Close { }
+
+            MoveTo {
+                x: size_float * 0.843285;
+                y: size_float * 0.294587;
+            }
+
+            LineTo {
+                x: size_float * 0.929888;
+                y: size_float * 0.244587;
+            }
+
+            LineTo {
+                x: size_float * 0.936138;
+                y: size_float * 0.255413;
+            }
+
+            LineTo {
+                x: size_float * 0.849535;
+                y: size_float * 0.305413;
+            }
+
+            Close { }
+        }
+
+        // END generated by tools/dial-paths.py
+
+        // left horizontal line
+        Rectangle {
+            x: 0px;
+            y: (size - Theme.marking_width * scale) / 2;
+            width: outer_thickness;
+            height: Theme.marking_width * scale;
+            background: Theme.marking;
+        }
+
+        // right horizontal line
+        Rectangle {
+            x: size - outer_thickness;
+            y: (size - Theme.marking_width * scale) / 2;
+            width: outer_thickness;
+            height: Theme.marking_width * scale;
+            background: Theme.marking;
+        }
+
+        // inner part: sky as full disc
+        // 1px smaller than the inner circle, its edge lies on the ring: at the same radius as the
+        // ground path its anti-aliased edge would show through the edge of the ground as a thin line
+        Rectangle {
+            x: outer_thickness + 1px;
+            y: outer_thickness + 1px;
+            width: size - 2 * outer_thickness - 2px;
+            height: self.width;
+            border-radius: self.width / 2;
+            background: Theme.sky;
+        }
+
+        // inner part: ground below the horizon
+        // from the right end of the horizon clockwise around the bottom to the left end
+        // the arc is the larger one, when the horizon is above the center
+        Path {
+            x: outer_thickness;
+            y: outer_thickness;
+            width: size - 2 * outer_thickness;
+            height: self.width;
+            // box of the inner disc, coordinates stay the same as for the full size
+            viewbox-x: outer_thickness / 1px;
+            viewbox-y: outer_thickness / 1px;
+            viewbox-width: 2 * inner_radius;
+            viewbox-height: 2 * inner_radius;
+            fill: Theme.ground;
+
+            MoveTo {
+                x: left_x;
+                y: left_y;
+            }
+
+            LineTo {
+                x: right_x;
+                y: right_y;
+            }
+
+            ArcTo {
+                x: left_x;
+                y: left_y;
+                radius-x: inner_radius;
+                radius-y: inner_radius;
+                large-arc: horizon_offset < 0;
+                sweep: true;
+            }
+
+            Close { }
+        }
+
+        // inner part: horizon line
+        Path {
+            x: outer_thickness;
+            y: outer_thickness;
+            width: size - 2 * outer_thickness;
+            height: self.width;
+            // box of the inner disc, coordinates stay the same as for the full size
+            viewbox-x: outer_thickness / 1px;
+            viewbox-y: outer_thickness / 1px;
+            viewbox-width: 2 * inner_radius;
+            viewbox-height: 2 * inner_radius;
+            stroke: Theme.marking;
+            stroke-width: Theme.marking_width * scale;
+
+            MoveTo {
+                x: left_x;
+                y: left_y;
+            }
+
+            LineTo {
+                x: right_x;
+                y: right_y;
+            }
+        }
+
+        // inner part: pitch ladder
+        Path {
+            x: outer_thickness;
+            y: outer_thickness;
+            width: size - 2 * outer_thickness;
+            height: self.width;
+            // box of the inner disc, coordinates stay the same as for the full size
+            viewbox-x: outer_thickness / 1px;
+            viewbox-y: outer_thickness / 1px;
+            viewbox-width: 2 * inner_radius;
+            viewbox-height: 2 * inner_radius;
+            stroke: Theme.marking;
+            stroke-width: Theme.marking_width * scale / 2;
+
+            MoveTo {
+                x: center + (pitch_offset + 30 * pitch_scale) * nx + (abs(root.pitch / 1deg + 30) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 30 * pitch_scale) * ny + (abs(root.pitch / 1deg + 30) < 23.184 ? -0.20 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset + 30 * pitch_scale) * nx + (abs(root.pitch / 1deg + 30) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 30 * pitch_scale) * ny + (abs(root.pitch / 1deg + 30) < 23.184 ? 0.20 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset + 25 * pitch_scale) * nx + (abs(root.pitch / 1deg + 25) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 25 * pitch_scale) * ny + (abs(root.pitch / 1deg + 25) < 23.585 ? -0.10 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset + 25 * pitch_scale) * nx + (abs(root.pitch / 1deg + 25) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 25 * pitch_scale) * ny + (abs(root.pitch / 1deg + 25) < 23.585 ? 0.10 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset + 20 * pitch_scale) * nx + (abs(root.pitch / 1deg + 20) < 22.5 ? -0.30 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 20 * pitch_scale) * ny + (abs(root.pitch / 1deg + 20) < 22.5 ? -0.30 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset + 20 * pitch_scale) * nx + (abs(root.pitch / 1deg + 20) < 22.5 ? 0.30 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 20 * pitch_scale) * ny + (abs(root.pitch / 1deg + 20) < 22.5 ? 0.30 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset + 15 * pitch_scale) * nx + (abs(root.pitch / 1deg + 15) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 15 * pitch_scale) * ny + (abs(root.pitch / 1deg + 15) < 23.585 ? -0.10 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset + 15 * pitch_scale) * nx + (abs(root.pitch / 1deg + 15) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 15 * pitch_scale) * ny + (abs(root.pitch / 1deg + 15) < 23.585 ? 0.10 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset + 10 * pitch_scale) * nx + (abs(root.pitch / 1deg + 10) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 10 * pitch_scale) * ny + (abs(root.pitch / 1deg + 10) < 23.184 ? -0.20 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset + 10 * pitch_scale) * nx + (abs(root.pitch / 1deg + 10) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 10 * pitch_scale) * ny + (abs(root.pitch / 1deg + 10) < 23.184 ? 0.20 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset + 5 * pitch_scale) * nx + (abs(root.pitch / 1deg + 5) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 5 * pitch_scale) * ny + (abs(root.pitch / 1deg + 5) < 23.585 ? -0.10 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset + 5 * pitch_scale) * nx + (abs(root.pitch / 1deg + 5) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset + 5 * pitch_scale) * ny + (abs(root.pitch / 1deg + 5) < 23.585 ? 0.10 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset - 5 * pitch_scale) * nx + (abs(root.pitch / 1deg - 5) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 5 * pitch_scale) * ny + (abs(root.pitch / 1deg - 5) < 23.585 ? -0.10 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset - 5 * pitch_scale) * nx + (abs(root.pitch / 1deg - 5) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 5 * pitch_scale) * ny + (abs(root.pitch / 1deg - 5) < 23.585 ? 0.10 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset - 10 * pitch_scale) * nx + (abs(root.pitch / 1deg - 10) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 10 * pitch_scale) * ny + (abs(root.pitch / 1deg - 10) < 23.184 ? -0.20 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset - 10 * pitch_scale) * nx + (abs(root.pitch / 1deg - 10) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 10 * pitch_scale) * ny + (abs(root.pitch / 1deg - 10) < 23.184 ? 0.20 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset - 15 * pitch_scale) * nx + (abs(root.pitch / 1deg - 15) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 15 * pitch_scale) * ny + (abs(root.pitch / 1deg - 15) < 23.585 ? -0.10 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset - 15 * pitch_scale) * nx + (abs(root.pitch / 1deg - 15) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 15 * pitch_scale) * ny + (abs(root.pitch / 1deg - 15) < 23.585 ? 0.10 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset - 20 * pitch_scale) * nx + (abs(root.pitch / 1deg - 20) < 22.5 ? -0.30 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 20 * pitch_scale) * ny + (abs(root.pitch / 1deg - 20) < 22.5 ? -0.30 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset - 20 * pitch_scale) * nx + (abs(root.pitch / 1deg - 20) < 22.5 ? 0.30 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 20 * pitch_scale) * ny + (abs(root.pitch / 1deg - 20) < 22.5 ? 0.30 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset - 25 * pitch_scale) * nx + (abs(root.pitch / 1deg - 25) < 23.585 ? -0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 25 * pitch_scale) * ny + (abs(root.pitch / 1deg - 25) < 23.585 ? -0.10 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset - 25 * pitch_scale) * nx + (abs(root.pitch / 1deg - 25) < 23.585 ? 0.10 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 25 * pitch_scale) * ny + (abs(root.pitch / 1deg - 25) < 23.585 ? 0.10 * inner_radius : 0) * uy;
+            }
+
+            MoveTo {
+                x: center + (pitch_offset - 30 * pitch_scale) * nx + (abs(root.pitch / 1deg - 30) < 23.184 ? -0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 30 * pitch_scale) * ny + (abs(root.pitch / 1deg - 30) < 23.184 ? -0.20 * inner_radius : 0) * uy;
+            }
+
+            LineTo {
+                x: center + (pitch_offset - 30 * pitch_scale) * nx + (abs(root.pitch / 1deg - 30) < 23.184 ? 0.20 * inner_radius : 0) * ux;
+                y: center + (pitch_offset - 30 * pitch_scale) * ny + (abs(root.pitch / 1deg - 30) < 23.184 ? 0.20 * inner_radius : 0) * uy;
+            }
+        }
+
+        // bank pointer: triangle just inside the ring pointing at the bank scale
+        // turns against the roll, so it points to the current bank angle
+        Path {
+            x: outer_thickness;
+            y: outer_thickness;
+            width: size - 2 * outer_thickness;
+            height: self.width;
+            // box of the inner disc, coordinates stay the same as for the full size
+            viewbox-x: outer_thickness / 1px;
+            viewbox-y: outer_thickness / 1px;
+            viewbox-width: 2 * inner_radius;
+            viewbox-height: 2 * inner_radius;
+            fill: Theme.vehicle;
+
+            // distances from the center: tip touches the inner edge of the ring
+            property <float> tip: inner_radius;
+            property <float> base: center - outer_thickness * 1.5 / 1px;
+            property <float> half_base: outer_thickness / 3 / 1px;
+
+            // "up" rotated by -roll is -n, the base runs along u
+            MoveTo {
+                x: center - tip * nx;
+                y: center - tip * ny;
+            }
+
+            LineTo {
+                x: center - base * nx + half_base * ux;
+                y: center - base * ny + half_base * uy;
+            }
+
+            LineTo {
+                x: center - base * nx - half_base * ux;
+                y: center - base * ny - half_base * uy;
+            }
+
+            Close { }
+        }
+
+        // vehicle symbol: two horizontal lines with downward pointing inner ends
+        // drawn last so it stays on top of everything else
+        Path {
+            x: size * 0.2;
+            y: size * 0.48;
+            width: size * 0.6;
+            height: size * 0.1;
+            // box around the wings, coordinates stay the same as for the full size
+            viewbox-x: size_float * 0.2;
+            viewbox-y: size_float * 0.48;
+            viewbox-width: size_float * 0.6;
+            viewbox-height: size_float * 0.1;
+            stroke: Theme.vehicle;
+            stroke-width: Theme.vehicle_width * scale;
+            stroke-line-cap: round;
+            stroke-line-join: round;
+
+            // left wing
+            MoveTo {
+                x: size_float * 0.22;
+                y: size_float / 2;
+            }
+
+            LineTo {
+                x: size_float * 0.40;
+                y: size_float / 2;
+            }
+
+            LineTo {
+                x: size_float * 0.40;
+                y: size_float * 0.55;
+            }
+            // right wing
+            MoveTo {
+                x: size_float * 0.78;
+                y: size_float / 2;
+            }
+
+            LineTo {
+                x: size_float * 0.60;
+                y: size_float / 2;
+            }
+
+            LineTo {
+                x: size_float * 0.60;
+                y: size_float * 0.55;
+            }
+        }
+
+        // vehicle center dot
+        Rectangle {
+            x: (size - 2 * Theme.vehicle_width * scale) / 2;
+            y: (size - 2 * Theme.vehicle_width * scale) / 2;
+            width: 2 * Theme.vehicle_width * scale;
+            height: 2 * Theme.vehicle_width * scale;
+            border-radius: self.width / 2;
+            background: Theme.vehicle;
         }
-    }
-
-    // Bank ticks, in four paths with tight boxes: the ticks are static, and a box overlapping
-    // the moving inner disc would make them be redrawn every frame. Separate Tick components
-    // would be simpler, but each instance costs several KB of heap.
-    // The ticks are thin filled quadrilaterals (the same as a stroke with butt caps), the
-    // viewboxes are tight (1 unit margin), without a stroke the box is the viewbox.
-    // The coordinates are `size_float * A + B` with precomputed A and B, so each binding depends
-    // on one property only: the dependencies of bindings that use `center`, `inner_radius` and
-    // functions cost a lot more heap. Run tools/dial-paths.py again after changing the ticks,
-    // Theme.ring_ratio or Theme.marking_width.
-
-    // BEGIN generated by tools/dial-paths.py, do not edit
-    // 0deg
-    Path {
-        viewbox-x: size_float * 0.500000 - 2.5000;
-        viewbox-y: -1.0000;
-        viewbox-width: 5.0000;
-        viewbox-height: size_float * 0.100000 + 2.0000;
-        x: self.viewbox-x * 1px;
-        y: self.viewbox-y * 1px;
-        width: self.viewbox-width * 1px;
-        height: self.viewbox-height * 1px;
-        fill: Theme.marking;
-
-        MoveTo {
-            x: size_float * 0.500000 - 1.5000;
-            y: size_float * 0.100000;
-        }
-
-        LineTo {
-            x: size_float * 0.500000 - 1.5000;
-            y: -0.0000;
-        }
-
-        LineTo {
-            x: size_float * 0.500000 + 1.5000;
-            y: 0.0000;
-        }
-
-        LineTo {
-            x: size_float * 0.500000 + 1.5000;
-            y: size_float * 0.100000;
-        }
-
-        Close { }
-    }
-
-    // -20deg, -10deg, 10deg, 20deg
-    Path {
-        viewbox-x: size_float * 0.328990 - 1.7048;
-        viewbox-y: size_float * 0.007596 - 1.1302;
-        viewbox-width: size_float * 0.342020 + 3.4095;
-        viewbox-height: size_float * 0.116527 + 2.3868;
-        x: self.viewbox-x * 1px;
-        y: self.viewbox-y * 1px;
-        width: self.viewbox-width * 1px;
-        height: self.viewbox-height * 1px;
-        fill: Theme.marking;
-
-        MoveTo {
-            x: size_float * 0.363192 - 0.7048;
-            y: size_float * 0.124123 + 0.2565;
-        }
-
-        LineTo {
-            x: size_float * 0.328990 - 0.7048;
-            y: size_float * 0.030154 + 0.2565;
-        }
-
-        LineTo {
-            x: size_float * 0.328990 + 0.7048;
-            y: size_float * 0.030154 - 0.2565;
-        }
-
-        LineTo {
-            x: size_float * 0.363192 + 0.7048;
-            y: size_float * 0.124123 - 0.2565;
-        }
-
-        Close { }
-
-        MoveTo {
-            x: size_float * 0.430541 - 0.7386;
-            y: size_float * 0.106077 + 0.1302;
-        }
-
-        LineTo {
-            x: size_float * 0.413176 - 0.7386;
-            y: size_float * 0.007596 + 0.1302;
-        }
-
-        LineTo {
-            x: size_float * 0.413176 + 0.7386;
-            y: size_float * 0.007596 - 0.1302;
-        }
-
-        LineTo {
-            x: size_float * 0.430541 + 0.7386;
-            y: size_float * 0.106077 - 0.1302;
-        }
-
-        Close { }
-
-        MoveTo {
-            x: size_float * 0.569459 - 0.7386;
-            y: size_float * 0.106077 - 0.1302;
-        }
-
-        LineTo {
-            x: size_float * 0.586824 - 0.7386;
-            y: size_float * 0.007596 - 0.1302;
-        }
-
-        LineTo {
-            x: size_float * 0.586824 + 0.7386;
-            y: size_float * 0.007596 + 0.1302;
-        }
-
-        LineTo {
-            x: size_float * 0.569459 + 0.7386;
-            y: size_float * 0.106077 + 0.1302;
-        }
-
-        Close { }
-
-        MoveTo {
-            x: size_float * 0.636808 - 0.7048;
-            y: size_float * 0.124123 - 0.2565;
-        }
-
-        LineTo {
-            x: size_float * 0.671010 - 0.7048;
-            y: size_float * 0.030154 - 0.2565;
-        }
-
-        LineTo {
-            x: size_float * 0.671010 + 0.7048;
-            y: size_float * 0.030154 + 0.2565;
-        }
-
-        LineTo {
-            x: size_float * 0.636808 + 0.7048;
-            y: size_float * 0.124123 + 0.2565;
-        }
-
-        Close { }
-    }
-
-    // -60deg, -30deg
-    Path {
-        viewbox-x: size_float * 0.066987 - 1.7500;
-        viewbox-y: size_float * 0.066987 - 1.7500;
-        viewbox-width: size_float * 0.233013 + 4.0490;
-        viewbox-height: size_float * 0.233013 + 4.0490;
-        x: self.viewbox-x * 1px;
-        y: self.viewbox-y * 1px;
-        width: self.viewbox-width * 1px;
-        height: self.viewbox-height * 1px;
-        fill: Theme.marking;
-
-        MoveTo {
-            x: size_float * 0.153590 - 0.7500;
-            y: size_float * 0.300000 + 1.2990;
-        }
-
-        LineTo {
-            x: size_float * 0.066987 - 0.7500;
-            y: size_float * 0.250000 + 1.2990;
-        }
-
-        LineTo {
-            x: size_float * 0.066987 + 0.7500;
-            y: size_float * 0.250000 - 1.2990;
-        }
-
-        LineTo {
-            x: size_float * 0.153590 + 0.7500;
-            y: size_float * 0.300000 - 1.2990;
-        }
-
-        Close { }
-
-        MoveTo {
-            x: size_float * 0.300000 - 1.2990;
-            y: size_float * 0.153590 + 0.7500;
-        }
-
-        LineTo {
-            x: size_float * 0.250000 - 1.2990;
-            y: size_float * 0.066987 + 0.7500;
-        }
-
-        LineTo {
-            x: size_float * 0.250000 + 1.2990;
-            y: size_float * 0.066987 - 0.7500;
-        }
-
-        LineTo {
-            x: size_float * 0.300000 + 1.2990;
-            y: size_float * 0.153590 - 0.7500;
-        }
-
-        Close { }
-    }
-
-    // 30deg, 60deg
-    Path {
-        viewbox-x: size_float * 0.700000 - 2.2990;
-        viewbox-y: size_float * 0.066987 - 1.7500;
-        viewbox-width: size_float * 0.233013 + 4.0490;
-        viewbox-height: size_float * 0.233013 + 4.0490;
-        x: self.viewbox-x * 1px;
-        y: self.viewbox-y * 1px;
-        width: self.viewbox-width * 1px;
-        height: self.viewbox-height * 1px;
-        fill: Theme.marking;
-
-        MoveTo {
-            x: size_float * 0.700000 - 1.2990;
-            y: size_float * 0.153590 - 0.7500;
-        }
-
-        LineTo {
-            x: size_float * 0.750000 - 1.2990;
-            y: size_float * 0.066987 - 0.7500;
-        }
-
-        LineTo {
-            x: size_float * 0.750000 + 1.2990;
-            y: size_float * 0.066987 + 0.7500;
-        }
-
-        LineTo {
-            x: size_float * 0.700000 + 1.2990;
-            y: size_float * 0.153590 + 0.7500;
-        }
-
-        Close { }
-
-        MoveTo {
-            x: size_float * 0.846410 - 0.7500;
-            y: size_float * 0.300000 - 1.2990;
-        }
-
-        LineTo {
-            x: size_float * 0.933013 - 0.7500;
-            y: size_float * 0.250000 - 1.2990;
-        }
-
-        LineTo {
-            x: size_float * 0.933013 + 0.7500;
-            y: size_float * 0.250000 + 1.2990;
-        }
-
-        LineTo {
-            x: size_float * 0.846410 + 0.7500;
-            y: size_float * 0.300000 + 1.2990;
-        }
-
-        Close { }
-    }
-
-    // END generated by tools/dial-paths.py
-
-    // left horizontal line
-    Rectangle {
-        x: 0px;
-        y: (size - Theme.marking_width) / 2;
-        width: outer_thickness;
-        height: Theme.marking_width;
-        background: Theme.marking;
-    }
-
-    // right horizontal line
-    Rectangle {
-        x: size - outer_thickness;
-        y: (size - Theme.marking_width) / 2;
-        width: outer_thickness;
-        height: Theme.marking_width;
-        background: Theme.marking;
-    }
-
-    // inner part: sky as full disc
-    Rectangle {
-        x: outer_thickness;
-        y: outer_thickness;
-        width: size - 2 * outer_thickness;
-        height: self.width;
-        border-radius: self.width / 2;
-        background: Theme.sky;
-    }
-
-    // inner part: ground below the horizon
-    // from the right end of the horizon clockwise around the bottom to the left end
-    // the arc is the larger one, when the horizon is above the center
-    Path {
-        x: outer_thickness;
-        y: outer_thickness;
-        width: size - 2 * outer_thickness;
-        height: self.width;
-        // box of the inner disc, coordinates stay the same as for the full size
-        viewbox-x: outer_thickness / 1px;
-        viewbox-y: outer_thickness / 1px;
-        viewbox-width: 2 * inner_radius;
-        viewbox-height: 2 * inner_radius;
-        fill: Theme.ground;
-
-        MoveTo {
-            x: left_x;
-            y: left_y;
-        }
-
-        LineTo {
-            x: right_x;
-            y: right_y;
-        }
-
-        ArcTo {
-            x: left_x;
-            y: left_y;
-            radius-x: inner_radius;
-            radius-y: inner_radius;
-            large-arc: horizon_offset < 0;
-            sweep: true;
-        }
-
-        Close { }
-    }
-
-    // inner part: horizon line
-    Path {
-        x: outer_thickness;
-        y: outer_thickness;
-        width: size - 2 * outer_thickness;
-        height: self.width;
-        // box of the inner disc, coordinates stay the same as for the full size
-        viewbox-x: outer_thickness / 1px;
-        viewbox-y: outer_thickness / 1px;
-        viewbox-width: 2 * inner_radius;
-        viewbox-height: 2 * inner_radius;
-        stroke: Theme.marking;
-        stroke-width: Theme.marking_width;
-
-        MoveTo {
-            x: left_x;
-            y: left_y;
-        }
-
-        LineTo {
-            x: right_x;
-            y: right_y;
-        }
-    }
-
-    // inner part: pitch ladder
-    Path {
-        x: outer_thickness;
-        y: outer_thickness;
-        width: size - 2 * outer_thickness;
-        height: self.width;
-        // box of the inner disc, coordinates stay the same as for the full size
-        viewbox-x: outer_thickness / 1px;
-        viewbox-y: outer_thickness / 1px;
-        viewbox-width: 2 * inner_radius;
-        viewbox-height: 2 * inner_radius;
-        stroke: Theme.marking;
-        stroke-width: Theme.marking_width / 2;
-
-        MoveTo {
-            x: ladder_x(-30, 0.20, -1);
-            y: ladder_y(-30, 0.20, -1);
-        }
-
-        LineTo {
-            x: ladder_x(-30, 0.20, 1);
-            y: ladder_y(-30, 0.20, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(-25, 0.10, -1);
-            y: ladder_y(-25, 0.10, -1);
-        }
-
-        LineTo {
-            x: ladder_x(-25, 0.10, 1);
-            y: ladder_y(-25, 0.10, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(-20, 0.30, -1);
-            y: ladder_y(-20, 0.30, -1);
-        }
-
-        LineTo {
-            x: ladder_x(-20, 0.30, 1);
-            y: ladder_y(-20, 0.30, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(-15, 0.10, -1);
-            y: ladder_y(-15, 0.10, -1);
-        }
-
-        LineTo {
-            x: ladder_x(-15, 0.10, 1);
-            y: ladder_y(-15, 0.10, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(-10, 0.20, -1);
-            y: ladder_y(-10, 0.20, -1);
-        }
-
-        LineTo {
-            x: ladder_x(-10, 0.20, 1);
-            y: ladder_y(-10, 0.20, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(-5, 0.10, -1);
-            y: ladder_y(-5, 0.10, -1);
-        }
-
-        LineTo {
-            x: ladder_x(-5, 0.10, 1);
-            y: ladder_y(-5, 0.10, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(5, 0.10, -1);
-            y: ladder_y(5, 0.10, -1);
-        }
-
-        LineTo {
-            x: ladder_x(5, 0.10, 1);
-            y: ladder_y(5, 0.10, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(10, 0.20, -1);
-            y: ladder_y(10, 0.20, -1);
-        }
-
-        LineTo {
-            x: ladder_x(10, 0.20, 1);
-            y: ladder_y(10, 0.20, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(15, 0.10, -1);
-            y: ladder_y(15, 0.10, -1);
-        }
-
-        LineTo {
-            x: ladder_x(15, 0.10, 1);
-            y: ladder_y(15, 0.10, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(20, 0.30, -1);
-            y: ladder_y(20, 0.30, -1);
-        }
-
-        LineTo {
-            x: ladder_x(20, 0.30, 1);
-            y: ladder_y(20, 0.30, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(25, 0.10, -1);
-            y: ladder_y(25, 0.10, -1);
-        }
-
-        LineTo {
-            x: ladder_x(25, 0.10, 1);
-            y: ladder_y(25, 0.10, 1);
-        }
-
-        MoveTo {
-            x: ladder_x(30, 0.20, -1);
-            y: ladder_y(30, 0.20, -1);
-        }
-
-        LineTo {
-            x: ladder_x(30, 0.20, 1);
-            y: ladder_y(30, 0.20, 1);
-        }
-    }
-
-    // bank pointer: triangle just inside the ring pointing at the bank scale
-    // turns against the roll, so it points to the current bank angle
-    Path {
-        x: outer_thickness;
-        y: outer_thickness;
-        width: size - 2 * outer_thickness;
-        height: self.width;
-        // box of the inner disc, coordinates stay the same as for the full size
-        viewbox-x: outer_thickness / 1px;
-        viewbox-y: outer_thickness / 1px;
-        viewbox-width: 2 * inner_radius;
-        viewbox-height: 2 * inner_radius;
-        fill: Theme.vehicle;
-
-        // distances from the center: tip touches the inner edge of the ring
-        property <float> tip: inner_radius;
-        property <float> base: center - outer_thickness * 1.5 / 1px;
-        property <float> half_base: outer_thickness / 3 / 1px;
-
-        // "up" rotated by -roll is -n, the base runs along u
-        MoveTo {
-            x: center - tip * nx;
-            y: center - tip * ny;
-        }
-
-        LineTo {
-            x: center - base * nx + half_base * ux;
-            y: center - base * ny + half_base * uy;
-        }
-
-        LineTo {
-            x: center - base * nx - half_base * ux;
-            y: center - base * ny - half_base * uy;
-        }
-
-        Close { }
-    }
-
-    // vehicle symbol: two horizontal lines with downward pointing inner ends
-    // drawn last so it stays on top of everything else
-    Path {
-        x: size * 0.2;
-        y: size * 0.48;
-        width: size * 0.6;
-        height: size * 0.1;
-        // box around the wings, coordinates stay the same as for the full size
-        viewbox-x: size_float * 0.2;
-        viewbox-y: size_float * 0.48;
-        viewbox-width: size_float * 0.6;
-        viewbox-height: size_float * 0.1;
-        stroke: Theme.vehicle;
-        stroke-width: Theme.vehicle_width;
-        stroke-line-cap: round;
-        stroke-line-join: round;
-
-        // left wing
-        MoveTo {
-            x: size_float * 0.22;
-            y: size_float / 2;
-        }
-
-        LineTo {
-            x: size_float * 0.40;
-            y: size_float / 2;
-        }
-
-        LineTo {
-            x: size_float * 0.40;
-            y: size_float * 0.55;
-        }
-        // right wing
-        MoveTo {
-            x: size_float * 0.78;
-            y: size_float / 2;
-        }
-
-        LineTo {
-            x: size_float * 0.60;
-            y: size_float / 2;
-        }
-
-        LineTo {
-            x: size_float * 0.60;
-            y: size_float * 0.55;
-        }
-    }
-
-    // vehicle center dot
-    Rectangle {
-        x: (size - 2 * Theme.vehicle_width) / 2;
-        y: (size - 2 * Theme.vehicle_width) / 2;
-        width: 2 * Theme.vehicle_width;
-        height: 2 * Theme.vehicle_width;
-        border-radius: self.width / 2;
-        background: Theme.vehicle;
     }
 }

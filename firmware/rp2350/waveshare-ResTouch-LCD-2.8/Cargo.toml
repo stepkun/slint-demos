@@ -1,0 +1,32 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "instruments-firmware-rp2350"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
+# rp235xa: the RP2350A of the Raspberry Pi Pico 2; embassy-rp adds the IMAGE_DEF block the boot
+# ROM needs. No `intrinsics`: the Cortex-M33 divides in hardware and has a single precision FPU.
+embassy-rp = { version = "0.10", features = ["rp235xa", "time-driver", "critical-section-impl"] }
+embassy-time = "0.5"
+embedded-alloc = "0.7"
+embedded-hal = "1"
+embedded-hal-bus = "0.3"
+mipidsi = "0.10"
+slint = { version = "1.18.1", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
+
+[build-dependencies]
+slint-build = "1.18.1"
+
+# the patched crates in firmware/vendor, shared by all firmwares and tools/host-check, so they
+# always run the same renderer, see firmware/vendor/README.md
+[patch.crates-io]
+i-slint-core = { path = "../../vendor/i-slint-core" }
+zeno = { path = "../../vendor/zeno" }
+i-slint-renderer-software = { path = "../../vendor/i-slint-renderer-software" }
