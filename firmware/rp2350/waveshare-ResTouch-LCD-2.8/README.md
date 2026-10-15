@@ -83,4 +83,5 @@ which only has a 92 KB heap: changes to the `.slint` files must still be checked
 
 ## Status
 
-Built only, not yet tested on a Pico 2.
+Runs on a Pico 2: display and touch work, with the 75 MHz SPI clock and the touch
+calibration of the RP2040 firmware.
