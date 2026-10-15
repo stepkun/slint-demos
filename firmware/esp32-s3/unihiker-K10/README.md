@@ -115,7 +115,7 @@ still be checked with `tools/host-check`, which simulates the RP2040. The 8 MB P
 
 ## Status
 
-Shows the instruments on a K10. With the 180° rotation alone the picture was mirrored
-horizontally, so the orientation also flips it (`Orientation::new().rotate(Rotation::Deg180)
-.flip_horizontal()` in `src/main.rs`). If the colors look wrong (red and blue swapped), change
-`ColorOrder::Bgr` to `ColorOrder::Rgb`.
+Runs on a K10: display, buttons A and B (instruments, AUTO, brightness) and the dimmed
+backlight work. With DFRobot's 180° rotation alone the picture was mirrored horizontally; a
+180° rotation with a horizontal flip is the same as a vertical flip only, which the firmware
+uses (`Orientation::new().flip_vertical()` in `src/main.rs`).
