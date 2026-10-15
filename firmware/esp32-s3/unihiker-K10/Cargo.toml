@@ -1,0 +1,39 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "instruments-firmware-unihiker-k10"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+esp-hal = { version = "1.2", features = ["esp32s3", "unstable"] }
+# application descriptor the ESP-IDF bootloader (flashed by espflash) checks
+esp-bootloader-esp-idf = { version = "0.6", features = ["esp32s3"] }
+# panics are printed over the USB serial port of the K10 (USB-Serial-JTAG of the ESP32-S3)
+esp-backtrace = { version = "0.20", features = ["esp32s3", "panic-handler", "println"] }
+esp-println = { version = "0.18", features = ["esp32s3"] }
+# the same allocator as the RP2040 and RP2350 firmwares, so the heap peak means the same
+embedded-alloc = "0.7"
+embedded-hal = "1"
+embedded-hal-bus = "0.3"
+mipidsi = "0.10"
+slint = { version = "1.18.1", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
+
+[build-dependencies]
+slint-build = "1.18.1"
+
+# the same patched crates as the RP2040 firmware, used from its vendor directory, so all
+# firmwares (and tools/host-check) run the same renderer, see its README.md
+[patch.crates-io]
+i-slint-core = { path = "../../rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-core" }
+zeno = { path = "../../rp2040/waveshare-ResTouch-LCD-2.8/vendor/zeno" }
+i-slint-renderer-software = { path = "../../rp2040/waveshare-ResTouch-LCD-2.8/vendor/i-slint-renderer-software" }
+
+[profile.release]
+# the ESP32-S3 has enough flash, debug info doesn't end up on the device
+debug = 2
+opt-level = 3
+codegen-units = 1
+lto = "fat"
