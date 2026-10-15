@@ -16,6 +16,8 @@ esp-backtrace = { version = "0.20", features = ["esp32s3", "panic-handler", "pri
 esp-println = { version = "0.18", features = ["esp32s3"] }
 # the same allocator as the RP2040 and RP2350 firmwares, so the heap peak means the same
 embedded-alloc = "0.7"
+# shares the IO expander between the main loop and the backlight interrupt (esp-hal implements it)
+critical-section = "1"
 embedded-hal = "1"
 embedded-hal-bus = "0.3"
 mipidsi = "0.10"

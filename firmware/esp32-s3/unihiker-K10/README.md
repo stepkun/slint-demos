@@ -73,10 +73,13 @@ The K10 has no touch screen, so the touch buttons of the menu area can't be used
 Short presses act when the buttons are released, a long press doesn't change the instrument.
 The brightness slider in the menu area shows the brightness (5 to 100 %).
 
-The backlight switch on the IO expander has no PWM, so the brightness is sent to the ILI9341
-("write display brightness" 0x51, enabled with "write CTRL display" 0x53). Its CABC PWM output
-dims the backlight only if the panel connects it to the backlight; the pixels themselves are
-not changed.
+The backlight is wired to an on/off pin of the IO expander, without PWM, so a timer interrupt
+switches it on and off at 200 Hz: on at the start of each 5 ms period, off after the brightness
+part of it. Each switch is one I2C write of about 70 µs (the output register of port 0 is
+cached), two per period, about 3 % of the CPU; at 100 % the expander isn't written at all. The
+interrupt and the button reading share the I2C bus through a critical section. The brightness
+command of the ILI9341 (0x51) has no effect on the K10, its CABC output isn't connected to the
+backlight.
 
 ## Differences to the Pico firmwares
 
@@ -88,7 +91,7 @@ not changed.
 | Clock | 200 MHz / 150 MHz | 240 MHz |
 | Display | ST7789, 100 MHz / 75 MHz SPI | ILI9341, 40 MHz SPI (pins through the GPIO matrix), DMA through an 8 KB copy buffer |
 | Input | touch (XPT2046) | buttons A and B on the IO expander |
-| Backlight | PWM, brightness slider | on/off on the IO expander, brightness by the ILI9341 (long press of A or B) |
+| Backlight | PWM, brightness slider | on/off on the IO expander, switched at 200 Hz by a timer interrupt (long press of A or B) |
 | Heap | 92 KB / 256 KB | 112 KB |
 | Crash signal | backlight blinking or dark | panic message on the USB serial port |
 

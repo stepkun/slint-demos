@@ -13,7 +13,9 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::alloc::{GlobalAlloc, Layout};
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+
+use critical_section::Mutex;
 
 use embedded_alloc::TlsfHeap as Heap;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -25,7 +27,9 @@ use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::spi::Mode;
 use esp_hal::spi::master::{Config as SpiConfig, Spi, SpiDma};
 use esp_hal::time::{Duration, Instant, Rate};
-use esp_hal::{Blocking, dma_rx_buffer, dma_tx_buffer, main};
+use esp_hal::timer::OneShotTimer;
+use esp_hal::timer::timg::TimerGroup;
+use esp_hal::{Blocking, dma_rx_buffer, dma_tx_buffer, handler, main};
 use mipidsi::interface::SpiInterface;
 use mipidsi::models::ILI9341Rgb565;
 use mipidsi::options::{ColorInversion, ColorOrder, Orientation};
@@ -55,8 +59,10 @@ const EXPANDER: u8 = 0x20;
 const EXPANDER_INPUT: u8 = 0x00;
 const EXPANDER_OUTPUT: u8 = 0x02;
 const EXPANDER_CONFIG: u8 = 0x06;
-// port 0 bit 0: backlight, on/off only (no PWM)
+// port 0 bit 0: backlight, on/off only: it is dimmed by switching it on and off from a timer
+// interrupt, BACKLIGHT_PERIOD_US long (200 Hz), each switch is one I2C write of about 70 us
 const BACKLIGHT: (usize, u8) = (0, 1 << 0);
+const BACKLIGHT_PERIOD_US: u32 = 5000;
 // buttons, low while pressed: A on port 1 bit 4, B on port 0 bit 2
 const BUTTON_A: (usize, u8) = (1, 1 << 4);
 const BUTTON_B: (usize, u8) = (0, 1 << 2);
@@ -117,6 +123,43 @@ unsafe impl GlobalAlloc for Allocator {
 #[global_allocator]
 static ALLOCATOR: Allocator = Allocator;
 
+// The IO expander, used by the main loop (buttons) and by the backlight interrupt, and the timer
+// of that interrupt. The backlight is on for BACKLIGHT_ON_US of each period.
+static EXPANDER_DEVICE: Mutex<RefCell<Option<Expander<'static>>>> = Mutex::new(RefCell::new(None));
+static BACKLIGHT_TIMER: Mutex<RefCell<Option<OneShotTimer<'static, Blocking>>>> =
+    Mutex::new(RefCell::new(None));
+static BACKLIGHT_ON_US: AtomicU32 = AtomicU32::new(BACKLIGHT_PERIOD_US);
+static BACKLIGHT_LIT: AtomicBool = AtomicBool::new(false);
+
+/// Timer interrupt of the backlight: switches it on at the start of each period and off after
+/// BACKLIGHT_ON_US, and schedules itself for the next switch. At full brightness it stays on and
+/// the expander isn't written.
+#[handler]
+fn backlight_interrupt() {
+    critical_section::with(|cs| {
+        let mut timer = BACKLIGHT_TIMER.borrow_ref_mut(cs);
+        let mut expander = EXPANDER_DEVICE.borrow_ref_mut(cs);
+        let (Some(timer), Some(expander)) = (timer.as_mut(), expander.as_mut()) else {
+            return;
+        };
+        timer.clear_interrupt();
+        let on_us = BACKLIGHT_ON_US.load(Ordering::Relaxed);
+        let lit = BACKLIGHT_LIT.load(Ordering::Relaxed);
+        let (light, next_us) = if on_us >= BACKLIGHT_PERIOD_US {
+            (true, BACKLIGHT_PERIOD_US)
+        } else if lit {
+            (false, BACKLIGHT_PERIOD_US - on_us)
+        } else {
+            (true, on_us)
+        };
+        if light != lit {
+            expander.set_backlight(light);
+            BACKLIGHT_LIT.store(light, Ordering::Relaxed);
+        }
+        let _ = timer.schedule(Duration::from_micros(u64::from(next_us)));
+    });
+}
+
 // a full frame buffer is needed, because the software renderer
 // skips Path elements when rendering line by line
 // the pixels are stored in the byte order of the ILI9341, so they are sent unchanged
@@ -162,6 +205,8 @@ impl embedded_hal::digital::OutputPin for ChipSelect<'_> {
 /// The IO expander with the backlight and the buttons
 struct Expander<'d> {
     i2c: I2c<'d, Blocking>,
+    // value of the output register of port 0, so the backlight is switched with a single write
+    output_0: u8,
 }
 
 impl Expander<'_> {
@@ -177,10 +222,20 @@ impl Expander<'_> {
         }
     }
 
-    /// Switches the backlight on
-    fn backlight_on(&mut self) {
-        self.modify(EXPANDER_OUTPUT, BACKLIGHT, true);
+    /// Reads the output register of port 0, configures the backlight pin as an output
+    fn init_backlight(&mut self) {
+        let mut value = [0u8];
+        let _ = self.i2c.write_read(EXPANDER, &[EXPANDER_OUTPUT], &mut value);
+        self.output_0 = value[0];
         self.modify(EXPANDER_CONFIG, BACKLIGHT, false);
+    }
+
+    /// Switches the backlight, with one write of the cached output register of port 0
+    fn set_backlight(&mut self, on: bool) {
+        let (_, bits) = BACKLIGHT;
+        self.output_0 = if on { self.output_0 | bits } else { self.output_0 & !bits };
+        // errors are ignored, the next period switches it again
+        let _ = self.i2c.write(EXPANDER, &[EXPANDER_OUTPUT, self.output_0]);
     }
 
     /// Configures the pins of the buttons as inputs
@@ -209,24 +264,6 @@ fn command(spi: &mut SpiDma<'_, Blocking>, dc: &mut Output<'_>, command: u8, par
     if !parameters.is_empty() {
         let _ = SpiBus::write(spi, parameters);
     }
-}
-
-/// Sets the brightness of the ILI9341 (0 to 100 %): its CABC PWM output follows the value of
-/// "write display brightness" once "write CTRL display" enables the brightness control. This
-/// only dims the backlight if the panel connects that output to it; the backlight switch on the
-/// IO expander has no PWM.
-fn set_display_brightness(
-    spi: &mut SpiDma<'_, Blocking>,
-    dc: &mut Output<'_>,
-    cs: &RefCell<Output<'static>>,
-    brightness: i32,
-) {
-    cs.borrow_mut().set_low();
-    // write CTRL display: brightness control (BCTRL), display dimming (DD), backlight (BL) on
-    command(spi, dc, 0x53, &[0x2c]);
-    // write display brightness, 0 to 255
-    command(spi, dc, 0x51, &[(brightness.clamp(0, 100) * 255 / 100) as u8]);
-    cs.borrow_mut().set_high();
 }
 
 /// Sends full rows of the frame buffer to the display,
@@ -295,8 +332,17 @@ fn main() -> ! {
         .unwrap()
         .with_sda(p.GPIO47)
         .with_scl(p.GPIO48);
-    let mut expander = Expander { i2c };
+    let mut expander = Expander { i2c, output_0: 0 };
     expander.buttons_as_inputs();
+    expander.init_backlight();
+    critical_section::with(|cs| EXPANDER_DEVICE.borrow_ref_mut(cs).replace(expander));
+
+    // timer of the backlight interrupt, it starts with the first frame
+    let timer_group = TimerGroup::new(p.TIMG0);
+    let mut backlight_timer = OneShotTimer::new(timer_group.timer0);
+    backlight_timer.set_interrupt_handler(backlight_interrupt);
+    backlight_timer.listen();
+    critical_section::with(|cs| BACKLIGHT_TIMER.borrow_ref_mut(cs).replace(backlight_timer));
 
     // LCD on SPI2: SCK GPIO12, MOSI GPIO21, CS GPIO14, DC GPIO13, no reset pin (software reset)
     let spi = Spi::new(
@@ -377,9 +423,9 @@ fn main() -> ! {
     let mut brightness_changed = Instant::now();
     // the button held alone has changed the brightness, its release doesn't change the instrument
     let mut long_press = false;
-    // brightness last sent to the display
+    // brightness of the backlight (5 to 100 %), the slider in the menu area shows it
     let mut brightness = ui.get_brightness().clamp(5, 100);
-    set_display_brightness(spi, &mut lcd_dc, &lcd_cs, brightness);
+    BACKLIGHT_ON_US.store(brightness as u32 * BACKLIGHT_PERIOD_US / 100, Ordering::Relaxed);
 
     loop {
         let frame_start = Instant::now();
@@ -401,7 +447,12 @@ fn main() -> ! {
         // instrument, both together switch the automatic sequence on. Like a touch on an
         // instrument button, A or B switch it off. Held alone, A makes the display brighter and B
         // dimmer, like the brightness slider of the Picos (which shows the value).
-        let buttons = expander.buttons();
+        let buttons = critical_section::with(|cs| {
+            EXPANDER_DEVICE
+                .borrow_ref_mut(cs)
+                .as_mut()
+                .map_or((false, false), |expander| expander.buttons())
+        });
         if buttons.0 && buttons.1 {
             both_pressed = true;
         }
@@ -432,11 +483,12 @@ fn main() -> ! {
         }
         last_buttons = buttons;
 
-        // brightness from the slider value in the menu area (5 to 100 %)
+        // brightness from the slider value in the menu area (5 to 100 %), the backlight
+        // interrupt picks it up with its next switch
         let selected_brightness = ui.get_brightness().clamp(5, 100);
         if selected_brightness != brightness {
             brightness = selected_brightness;
-            set_display_brightness(spi, &mut lcd_dc, &lcd_cs, brightness);
+            BACKLIGHT_ON_US.store(brightness as u32 * BACKLIGHT_PERIOD_US / 100, Ordering::Relaxed);
         }
 
         // automatic sequence (switch in the menu area): the next instrument every 20 seconds,
@@ -483,7 +535,12 @@ fn main() -> ! {
             );
             frames += 1;
             if !backlight {
-                expander.backlight_on();
+                // the first interrupt switches the backlight on
+                critical_section::with(|cs| {
+                    if let Some(timer) = BACKLIGHT_TIMER.borrow_ref_mut(cs).as_mut() {
+                        let _ = timer.schedule(Duration::from_micros(10));
+                    }
+                });
                 backlight = true;
             }
         }
