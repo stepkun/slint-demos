@@ -1,7 +1,8 @@
 # Instruments firmware
 
 Firmware that shows the instrument UI from `../../../ui` on a Raspberry Pi Pico W with a
-Waveshare Pico-ResTouch-LCD-2.8.
+Waveshare Pico-ResTouch-LCD-2.8. The same firmware for the Raspberry Pi Pico 2 (RP2350) is in
+[`../../rp2350/waveshare-ResTouch-LCD-2.8`](../../rp2350/waveshare-ResTouch-LCD-2.8/README.md).
 
 ## Hardware
 
