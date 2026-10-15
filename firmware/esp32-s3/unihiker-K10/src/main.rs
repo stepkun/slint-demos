@@ -444,7 +444,7 @@ fn main() -> ! {
         ui.set_slip(triangle(frame_start, Duration::from_secs(12), 0.6));
 
         // Buttons instead of the touch buttons of the menu: A shows the previous, B the next
-        // instrument, both together switch the automatic sequence on. Like a touch on an
+        // instrument, both together toggle the automatic sequence. Like a touch on an
         // instrument button, A or B switch it off. Held alone, A makes the display brighter and B
         // dimmer, like the brightness slider of the Picos (which shows the value).
         let buttons = critical_section::with(|cs| {
@@ -472,7 +472,7 @@ fn main() -> ! {
         let released = (last_buttons.0 && !buttons.0, last_buttons.1 && !buttons.1);
         if !buttons.0 && !buttons.1 && (released.0 || released.1) {
             if both_pressed {
-                ui.set_auto_select(true);
+                ui.set_auto_select(!ui.get_auto_select());
             } else if !long_press {
                 let step = if released.0 { INSTRUMENTS - 1 } else { 1 };
                 ui.set_instrument((ui.get_instrument() + step) % INSTRUMENTS);

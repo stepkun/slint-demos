@@ -66,7 +66,7 @@ The K10 has no touch screen, so the touch buttons of the menu area can't be used
 |---|---|
 | A | previous instrument, switches the automatic sequence off |
 | B | next instrument, switches the automatic sequence off |
-| A and B together | switches the automatic sequence on |
+| A and B together | switches the automatic sequence on or off |
 | A held (0.5 s) | brighter, 5 % every 0.1 s while held |
 | B held (0.5 s) | dimmer, 5 % every 0.1 s while held |
 
