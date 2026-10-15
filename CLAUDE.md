@@ -16,6 +16,7 @@ The RP2040 is the target that matters: everything must work there.
 | `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir, vendored patched crates in `vendor/` |
 | `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate, uses the `vendor/` crates of the RP2040 firmware |
+| `firmware/esp32-s3/unihiker-k10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate, uses the `vendor/` crates of the RP2040 firmware |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
@@ -33,11 +34,16 @@ cargo run --release                           # flash, only with a Pico in BOOTS
 cd ../../rp2350/waveshare-ResTouch-LCD-2.8
 cargo build --release                         # Pico 2, needs: rustup target add thumbv8m.main-none-eabihf
 cargo run --release                           # flash with picotool 2.x, Pico 2 in BOOTSEL mode
+cd ../../esp32-s3/unihiker-k10
+cargo build --release                         # K10, needs: espup install --targets esp32s3 --toolchain-version 1.95.0.0
+cargo run --release                           # flash with espflash, K10 on USB
 ```
 
 The RP2350 firmware is a copy of the RP2040 one with the chip specific parts changed (target,
 `memory.x` with the `IMAGE_DEF` block, clocks, heap, register addresses of the panic handler),
 see its README. Keep both `src/main.rs` in step when changing the display, touch or menu code.
+The K10 firmware uses esp-hal instead of embassy and buttons instead of touch, but the same
+allocator, Slint setup and frame transfer as the Picos, see its README.
 The RP2040, with its 92 KB heap, stays the target the UI has to fit.
 
 The firmwares, `tools/host-check`, `web` and `issues/rp2040/partial-redraw-path` are separate
@@ -113,7 +119,7 @@ rotation or scaling transforms.
 - **Moving parts get tight boxes that follow them,** and static paths are grouped so that their
   boxes never overlap a moving box (checked by `tools/dial-paths.py` for every hand angle).
 - **Fonts are embedded** (`ui/fonts/NotoSans-Regular.ttf`), there are no system fonts. The
-  glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of both firmwares and
+  glyphs are pre-rendered for the sizes in `SLINT_FONT_SIZES` (`build.rs` of all firmwares and
   of `tools/host-check`), the font sizes of `Theme` (12, 14 and 20 px); a size in between falls
   back to the next smaller one. Keep them in sync, and round scaled font sizes to whole pixels.
 - Use the colours, widths and font sizes from `Theme`, don't hard-code them. Widths and font
