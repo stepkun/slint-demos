@@ -67,9 +67,16 @@ The K10 has no touch screen, so the touch buttons of the menu area can't be used
 | A | previous instrument, switches the automatic sequence off |
 | B | next instrument, switches the automatic sequence off |
 | A and B together | switches the automatic sequence on |
+| A held (0.5 s) | brighter, 5 % every 0.1 s while held |
+| B held (0.5 s) | dimmer, 5 % every 0.1 s while held |
 
-The action happens when the buttons are released. The backlight can only be switched on and
-off, so the brightness slider in the menu area has no effect.
+Short presses act when the buttons are released, a long press doesn't change the instrument.
+The brightness slider in the menu area shows the brightness (5 to 100 %).
+
+The backlight switch on the IO expander has no PWM, so the brightness is sent to the ILI9341
+("write display brightness" 0x51, enabled with "write CTRL display" 0x53). Its CABC PWM output
+dims the backlight only if the panel connects it to the backlight; the pixels themselves are
+not changed.
 
 ## Differences to the Pico firmwares
 
@@ -81,7 +88,7 @@ off, so the brightness slider in the menu area has no effect.
 | Clock | 200 MHz / 150 MHz | 240 MHz |
 | Display | ST7789, 100 MHz / 75 MHz SPI | ILI9341, 40 MHz SPI (pins through the GPIO matrix), DMA through an 8 KB copy buffer |
 | Input | touch (XPT2046) | buttons A and B on the IO expander |
-| Backlight | PWM, brightness slider | on/off on the IO expander |
+| Backlight | PWM, brightness slider | on/off on the IO expander, brightness by the ILI9341 (long press of A or B) |
 | Heap | 92 KB / 256 KB | 112 KB |
 | Crash signal | backlight blinking or dark | panic message on the USB serial port |
 

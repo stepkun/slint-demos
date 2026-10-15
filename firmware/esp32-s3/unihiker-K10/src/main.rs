@@ -55,11 +55,16 @@ const EXPANDER: u8 = 0x20;
 const EXPANDER_INPUT: u8 = 0x00;
 const EXPANDER_OUTPUT: u8 = 0x02;
 const EXPANDER_CONFIG: u8 = 0x06;
-// port 0 bit 0: backlight, on/off only (no PWM, the brightness slider has no effect)
+// port 0 bit 0: backlight, on/off only (no PWM)
 const BACKLIGHT: (usize, u8) = (0, 1 << 0);
 // buttons, low while pressed: A on port 1 bit 4, B on port 0 bit 2
 const BUTTON_A: (usize, u8) = (1, 1 << 4);
 const BUTTON_B: (usize, u8) = (0, 1 << 2);
+// a button held this long changes the brightness instead of the instrument: A brighter, B
+// dimmer, by BRIGHTNESS_STEP percent every BRIGHTNESS_REPEAT while held (5 to 100 % in 2 s)
+const LONG_PRESS: Duration = Duration::from_millis(500);
+const BRIGHTNESS_REPEAT: Duration = Duration::from_millis(100);
+const BRIGHTNESS_STEP: i32 = 5;
 // shortest time per frame, limits the frame rate to 50 per second
 const FRAME_TIME: Duration = Duration::from_millis(20);
 // instruments of the selector in the menu area, and how long each is shown in the automatic
@@ -206,6 +211,24 @@ fn command(spi: &mut SpiDma<'_, Blocking>, dc: &mut Output<'_>, command: u8, par
     }
 }
 
+/// Sets the brightness of the ILI9341 (0 to 100 %): its CABC PWM output follows the value of
+/// "write display brightness" once "write CTRL display" enables the brightness control. This
+/// only dims the backlight if the panel connects that output to it; the backlight switch on the
+/// IO expander has no PWM.
+fn set_display_brightness(
+    spi: &mut SpiDma<'_, Blocking>,
+    dc: &mut Output<'_>,
+    cs: &RefCell<Output<'static>>,
+    brightness: i32,
+) {
+    cs.borrow_mut().set_low();
+    // write CTRL display: brightness control (BCTRL), display dimming (DD), backlight (BL) on
+    command(spi, dc, 0x53, &[0x2c]);
+    // write display brightness, 0 to 255
+    command(spi, dc, 0x51, &[(brightness.clamp(0, 100) * 255 / 100) as u8]);
+    cs.borrow_mut().set_high();
+}
+
 /// Sends full rows of the frame buffer to the display,
 /// `rows` must contain exactly the pixel data of the rows `first_row..=last_row`
 fn send_rows(
@@ -349,6 +372,14 @@ fn main() -> ! {
     let mut last_buttons = (false, false);
     // both buttons were pressed together since the last release of all buttons
     let mut both_pressed = false;
+    // when the button that is held alone was pressed, and when the brightness was last changed
+    let mut pressed_since = Instant::now();
+    let mut brightness_changed = Instant::now();
+    // the button held alone has changed the brightness, its release doesn't change the instrument
+    let mut long_press = false;
+    // brightness last sent to the display
+    let mut brightness = ui.get_brightness().clamp(5, 100);
+    set_display_brightness(spi, &mut lcd_dc, &lcd_cs, brightness);
 
     loop {
         let frame_start = Instant::now();
@@ -368,23 +399,45 @@ fn main() -> ! {
 
         // Buttons instead of the touch buttons of the menu: A shows the previous, B the next
         // instrument, both together switch the automatic sequence on. Like a touch on an
-        // instrument button, A or B switch it off.
+        // instrument button, A or B switch it off. Held alone, A makes the display brighter and B
+        // dimmer, like the brightness slider of the Picos (which shows the value).
         let buttons = expander.buttons();
         if buttons.0 && buttons.1 {
             both_pressed = true;
+        }
+        if (buttons.0 && !last_buttons.0) || (buttons.1 && !last_buttons.1) {
+            pressed_since = frame_start;
+        }
+        if buttons.0 != buttons.1
+            && !both_pressed
+            && frame_start - pressed_since >= LONG_PRESS
+            && (!long_press || frame_start - brightness_changed >= BRIGHTNESS_REPEAT)
+        {
+            let step = if buttons.0 { BRIGHTNESS_STEP } else { -BRIGHTNESS_STEP };
+            ui.set_brightness((ui.get_brightness() + step).clamp(5, 100));
+            brightness_changed = frame_start;
+            long_press = true;
         }
         let released = (last_buttons.0 && !buttons.0, last_buttons.1 && !buttons.1);
         if !buttons.0 && !buttons.1 && (released.0 || released.1) {
             if both_pressed {
                 ui.set_auto_select(true);
-            } else {
+            } else if !long_press {
                 let step = if released.0 { INSTRUMENTS - 1 } else { 1 };
                 ui.set_instrument((ui.get_instrument() + step) % INSTRUMENTS);
                 ui.set_auto_select(false);
             }
             both_pressed = false;
+            long_press = false;
         }
         last_buttons = buttons;
+
+        // brightness from the slider value in the menu area (5 to 100 %)
+        let selected_brightness = ui.get_brightness().clamp(5, 100);
+        if selected_brightness != brightness {
+            brightness = selected_brightness;
+            set_display_brightness(spi, &mut lcd_dc, &lcd_cs, brightness);
+        }
 
         // automatic sequence (switch in the menu area): the next instrument every 20 seconds,
         // counted from when the switch was turned on
