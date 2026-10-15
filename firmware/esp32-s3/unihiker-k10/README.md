@@ -13,7 +13,7 @@ the K10.
 | Part | Details |
 |---|---|
 | MCU | ESP32-S3 (two Xtensa LX7 cores at 240 MHz, 512 KB SRAM, 16 MB flash, 8 MB PSRAM) |
-| Display | 2.8" ILI9341, 240x320, SPI, BGR, turned by 180° |
+| Display | 2.8" ILI9341, 240x320, SPI, BGR, turned by 180° and mirrored horizontally |
 | Touch | none, the buttons A and B select the instrument |
 | IO expander | XL9535 at I2C address 0x20, carries the backlight and the buttons |
 
@@ -105,6 +105,7 @@ still be checked with `tools/host-check`, which simulates the RP2040. The 8 MB P
 
 ## Status
 
-Built only, not yet tested on a K10. If the colors look wrong (red and blue swapped), change
-`ColorOrder::Bgr` to `ColorOrder::Rgb` in `src/main.rs`; if the picture is upside down, use
-`Rotation::Deg0`.
+Shows the instruments on a K10. With the 180° rotation alone the picture was mirrored
+horizontally, so the orientation also flips it (`Orientation::new().rotate(Rotation::Deg180)
+.flip_horizontal()` in `src/main.rs`). If the colors look wrong (red and blue swapped), change
+`ColorOrder::Bgr` to `ColorOrder::Rgb`.

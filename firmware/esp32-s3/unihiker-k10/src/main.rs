@@ -39,7 +39,8 @@ slint::include_modules!();
 esp_bootloader_esp_idf::esp_app_desc!();
 
 // display in its native portrait orientation, turned by 180 degree like DFRobot's own firmware
-// (the panel is mounted upside down)
+// (the panel is mounted upside down) and mirrored horizontally: its columns run the other way
+// round (seen on the device)
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
 // SPI clock for the display: the pins of the K10 (SCK GPIO12, MOSI GPIO21) go through the GPIO
@@ -301,7 +302,7 @@ fn main() -> ! {
     // mipidsi is only used to initialize the display
     let display = mipidsi::Builder::new(ILI9341Rgb565, interface)
         .display_size(240, 320)
-        .orientation(Orientation::new().rotate(Rotation::Deg180))
+        .orientation(Orientation::new().rotate(Rotation::Deg180).flip_horizontal())
         .color_order(ColorOrder::Bgr)
         .invert_colors(ColorInversion::Normal)
         .init(&mut delay.clone())
