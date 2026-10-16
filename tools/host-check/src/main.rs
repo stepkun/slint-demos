@@ -363,6 +363,7 @@ fn instrument_sequence(options: &Options) -> Vec<usize> {
     sequence
 }
 
+
 fn main() -> ExitCode {
     let options = match parse_options() {
         Ok(options) => options,
