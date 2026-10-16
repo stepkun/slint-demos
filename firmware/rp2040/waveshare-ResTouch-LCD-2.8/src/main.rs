@@ -374,7 +374,7 @@ async fn main(_spawner: Spawner) {
 
     // slint setup
     // ReusedBuffer only redraws what changed, the frame buffer keeps the rest
-    // (needs the patched renderer, Slint 1.18.1 blends Paths outside of the redrawn region,
+    // (needs the patched renderer, the original blends Paths outside of the redrawn region,
     // see issues/rp2040)
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
     window.set_size(slint::PhysicalSize::new(

@@ -2,7 +2,7 @@
 
 Two changes for Slint's software renderer, prepared as pull requests against Slint master
 (`0a4e236344`, 2026-10-13). They come from the RP2040 firmware in `../../../firmware/rp2040/waveshare-ResTouch-LCD-2.8`, where the
-same changes (backported to 1.18.1) run in `../../../firmware/vendor/i-slint-renderer-software`.
+same changes run in the Slint fork next to `slint-demos` (`../slint`).
 
 | File | Content |
 |---|---|

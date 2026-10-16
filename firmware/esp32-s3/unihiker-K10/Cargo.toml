@@ -21,17 +21,19 @@ critical-section = "1"
 embedded-hal = "1"
 embedded-hal-bus = "0.3"
 mipidsi = "0.10"
-slint = { version = "1.18.1", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
+slint = { version = "1.19.0", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
 
 [build-dependencies]
-slint-build = "1.18.1"
+slint-build = "1.19.0"
 
-# the patched crates in firmware/vendor, shared by all firmwares and tools/host-check, so they
-# always run the same renderer, see firmware/vendor/README.md
+# Slint and zeno from the local forks (next to slint-demos), with the patches for MCUs:
+# software renderer with paths only blended in the redrawn region (partial redraw bug), path
+# masks in bands of limited size and kept path buffers, zeno with heap storage instead of
+# about 18 KB on the stack. Keep the same in all firmwares and tools/host-check.
 [patch.crates-io]
-i-slint-core = { path = "../../vendor/i-slint-core" }
-zeno = { path = "../../vendor/zeno" }
-i-slint-renderer-software = { path = "../../vendor/i-slint-renderer-software" }
+slint = { path = "../../../../slint/api/rs/slint" }
+slint-build = { path = "../../../../slint/api/rs/build" }
+zeno = { path = "../../../../zeno" }
 
 #[profile.release]
 ## the ESP32-S3 has enough flash, debug info doesn't end up on the device

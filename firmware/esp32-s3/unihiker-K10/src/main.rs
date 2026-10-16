@@ -340,6 +340,14 @@ fn main() -> ! {
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let delay = Delay::new();
 
+    // The speaker amplifier (NS4168) is always on (CTRL tied to 3V3), and its I2S inputs pick up
+    // the display transfers as noise while they float: the speaker chirps. Held low, it gets no
+    // clock and stays silent. LRCK GPIO38, BCLK GPIO0, data GPIO45 (both strapping pins, only
+    // read at reset). Bound to names, so they stay driven while main runs.
+    let _speaker_lrck = Output::new(p.GPIO38, Level::Low, OutputConfig::default());
+    let _speaker_bclk = Output::new(p.GPIO0, Level::Low, OutputConfig::default());
+    let _speaker_data = Output::new(p.GPIO45, Level::Low, OutputConfig::default());
+
     // IO expander on I2C0: SDA GPIO47, SCL GPIO48
     let i2c = I2c::new(p.I2C0, I2cConfig::default().with_frequency(I2C_FREQUENCY))
         .unwrap()
@@ -396,7 +404,7 @@ fn main() -> ! {
 
     // slint setup
     // ReusedBuffer only redraws what changed, the frame buffer keeps the rest
-    // (needs the patched renderer, Slint 1.18.1 blends Paths outside of the redrawn region,
+    // (needs the patched renderer, the original blends Paths outside of the redrawn region,
     // see issues/rp2040)
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
     window.set_size(slint::PhysicalSize::new(

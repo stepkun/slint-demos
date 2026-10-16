@@ -26,6 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # the Slint and zeno forks next to the repository, where [patch.crates-io] of web/Cargo.toml
+      # expects them
+      - name: Check out the forks
+        run: |
+          git clone --depth 1 https://github.com/stepkun/slint ../slint
+          git clone --depth 1 https://github.com/stepkun/zeno ../zeno
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
