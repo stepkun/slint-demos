@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Aircraft instruments built with Slint (1.18.1). The same `.slint` instruments run on the desktop
+Aircraft instruments built with Slint (master, 1.19.0-dev, from a local fork). The same `.slint` instruments run on the desktop
 (all six at once) and on a Raspberry Pi Pico W (RP2040) with a Waveshare Pico-ResTouch-LCD-2.8
 (ST7789, 240x320, one instrument at a time with a menu).
 The RP2040 is the target that matters: everything must work there.
@@ -14,7 +14,7 @@ The RP2040 is the target that matters: everything must work there.
 | `src/main.rs` | Desktop app with `SixPack`, uses the software renderer to show what the display will show |
 | `src/demo.rs` | Demo values of the instruments, shared by the desktop app and the web demo |
 | `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
-| `firmware/vendor/` | Patched Slint crates (`i-slint-core`, `i-slint-renderer-software`, `zeno`), shared by all firmwares and `tools/host-check` through `[patch.crates-io]`, see its README |
+| `../slint`, `../zeno` | Local forks of Slint (master, patched software renderer) and zeno (heap storage), next to `slint-demos`; used by every crate here through `[patch.crates-io]` (`slint`, `slint-build`, `zeno`), see [Slint and zeno forks](firmware/rp2040/waveshare-ResTouch-LCD-2.8/README.md#slint-and-zeno-forks) |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir |
 | `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate |
 | `firmware/esp32-s3/unihiker-K10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate |
@@ -23,7 +23,7 @@ The RP2040 is the target that matters: everything must work there.
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
 
 The firmware `README.md` documents hardware, clocks, memory and performance in detail,
-`firmware/vendor/README.md` the patches. Read it before changing anything that runs on the device.
+its section "Slint and zeno forks" the patches. Read it before changing anything that runs on the device.
 
 ## Build
 
@@ -36,7 +36,7 @@ cd ../../rp2350/waveshare-ResTouch-LCD-2.8
 cargo build --release                         # Pico 2, needs: rustup target add thumbv8m.main-none-eabihf
 cargo run --release                           # flash with picotool 2.x, Pico 2 in BOOTSEL mode
 cd ../../esp32-s3/unihiker-K10
-cargo build --release                         # K10, needs: espup install --targets esp32s3 --toolchain-version 1.95.0.0
+cargo build --release                         # K10, needs: espup install --targets esp32s3 --toolchain-version 1.98.1.0
 cargo run --release                           # flash with espflash, K10 on USB
 ```
 
@@ -56,7 +56,7 @@ wasm-pack build --target web --release        # needs: rustup target add wasm32-
 python3 -m http.server 8000                   # then open http://localhost:8000
 ```
 
-After changing the `.slint` files or the vendored crates, run the host check
+After changing the `.slint` files or the Slint and zeno forks, run the host check
 (see `tools/host-check/README.md`; it is built for i686, needs
 `rustup target add i686-unknown-linux-gnu` and `gcc-multilib`):
 
@@ -83,7 +83,7 @@ what was only built or tested on the host.
 
 The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which 61 KB are requested at
 peak on the device when switching at random, 59 KB in the host check, plus ~20 % TLSF
-overhead), no FPU and no divide instruction. The Slint software renderer (1.18.1) has no
+overhead), no FPU and no divide instruction. The Slint software renderer has no
 rotation or scaling transforms.
 
 - **No transforms.** Rotated parts are calculated with `sin()`/`cos()`.
@@ -136,8 +136,8 @@ rotation or scaling transforms.
 
 - Rendering uses a full frame buffer (line-by-line rendering skips paths) with
   `RepaintBufferType::ReusedBuffer`; only changed rows are sent by DMA.
-- Partial redraws with paths only work with the patched `i-slint-renderer-software` in
-  `firmware/vendor`. Don't remove the `[patch.crates-io]` entries.
+- Partial redraws with paths only work with the patched `i-slint-renderer-software` of the
+  Slint fork (`../slint`). Don't remove the `[patch.crates-io]` entries.
 - Chip select must be toggled for each transfer (shared SPI1 with the touch controller).
 - Touch: XPT2046 on SPI1 (CS GP16, interrupt GP17, MISO GP12), read at 2 MHz only while touched,
   passed to Slint as pointer events. Affine calibration `TOUCH_CALIBRATION` and `SHOW_TOUCH` in

@@ -71,8 +71,8 @@ const BUTTON_B: (usize, u8) = (0, 1 << 2);
 const LONG_PRESS: Duration = Duration::from_millis(500);
 const BRIGHTNESS_REPEAT: Duration = Duration::from_millis(100);
 const BRIGHTNESS_STEP: i32 = 5;
-// shortest time per frame, limits the frame rate to 50 per second
-const FRAME_TIME: Duration = Duration::from_millis(20);
+// shortest time per frame, limits the frame rate to 60 per second
+const FRAME_TIME: Duration = Duration::from_millis(17);
 // instruments of the selector in the menu area, and how long each is shown in the automatic
 // sequence
 const INSTRUMENTS: i32 = 6;
@@ -80,8 +80,7 @@ const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
 // The ESP32-S3 has 512 KB internal SRAM, of which about 334 KB are left for the static data and
 // the stack of the application (esp-hal's memory.x, shared with the code in IRAM): 150 KB frame
 // buffer, 112 KB heap, the DMA buffer, the other statics and the stack. The instruments need
-// about 61 KB of heap on the RP2040, which has to make do with 92 KB. The 8 MB PSRAM of the
-// K10 isn't used.
+// about 61 KB of heap, which has to make do with 92 KB. The 8 MB PSRAM of the K10 isn't used.
 const HEAP_SIZE: usize = 112 * 1024;
 // copy buffer of the SPI DMA, the frame buffer rows are sent through it in chunks of this size
 const DMA_BUFFER_SIZE: usize = 8 * 1024;
@@ -216,8 +215,16 @@ impl Expander<'_> {
         let register = register + port as u8;
         let mut value = [0u8];
         // errors are ignored, the next frame tries again
-        if self.i2c.write_read(EXPANDER, &[register], &mut value).is_ok() {
-            let value = if set { value[0] | bits } else { value[0] & !bits };
+        if self
+            .i2c
+            .write_read(EXPANDER, &[register], &mut value)
+            .is_ok()
+        {
+            let value = if set {
+                value[0] | bits
+            } else {
+                value[0] & !bits
+            };
             let _ = self.i2c.write(EXPANDER, &[register, value]);
         }
     }
@@ -225,7 +232,9 @@ impl Expander<'_> {
     /// Reads the output register of port 0, configures the backlight pin as an output
     fn init_backlight(&mut self) {
         let mut value = [0u8];
-        let _ = self.i2c.write_read(EXPANDER, &[EXPANDER_OUTPUT], &mut value);
+        let _ = self
+            .i2c
+            .write_read(EXPANDER, &[EXPANDER_OUTPUT], &mut value);
         self.output_0 = value[0];
         self.modify(EXPANDER_CONFIG, BACKLIGHT, false);
     }
@@ -233,7 +242,11 @@ impl Expander<'_> {
     /// Switches the backlight, with one write of the cached output register of port 0
     fn set_backlight(&mut self, on: bool) {
         let (_, bits) = BACKLIGHT;
-        self.output_0 = if on { self.output_0 | bits } else { self.output_0 & !bits };
+        self.output_0 = if on {
+            self.output_0 | bits
+        } else {
+            self.output_0 & !bits
+        };
         // errors are ignored, the next period switches it again
         let _ = self.i2c.write(EXPANDER, &[EXPANDER_OUTPUT, self.output_0]);
     }
@@ -327,6 +340,14 @@ fn main() -> ! {
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let delay = Delay::new();
 
+    // The speaker amplifier (NS4168) is always on (CTRL tied to 3V3), and its I2S inputs pick up
+    // the display transfers as noise while they float: the speaker chirps. Held low, it gets no
+    // clock and stays silent. LRCK GPIO38, BCLK GPIO0, data GPIO45 (both strapping pins, only
+    // read at reset). Bound to names, so they stay driven while main runs.
+    let _speaker_lrck = Output::new(p.GPIO38, Level::Low, OutputConfig::default());
+    let _speaker_bclk = Output::new(p.GPIO0, Level::Low, OutputConfig::default());
+    let _speaker_data = Output::new(p.GPIO45, Level::Low, OutputConfig::default());
+
     // IO expander on I2C0: SDA GPIO47, SCL GPIO48
     let i2c = I2c::new(p.I2C0, I2cConfig::default().with_frequency(I2C_FREQUENCY))
         .unwrap()
@@ -383,7 +404,7 @@ fn main() -> ! {
 
     // slint setup
     // ReusedBuffer only redraws what changed, the frame buffer keeps the rest
-    // (needs the patched renderer, Slint 1.18.1 blends Paths outside of the redrawn region,
+    // (needs the patched renderer, the original blends Paths outside of the redrawn region,
     // see issues/rp2040)
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
     window.set_size(slint::PhysicalSize::new(
@@ -425,7 +446,10 @@ fn main() -> ! {
     let mut long_press = false;
     // brightness of the backlight (5 to 100 %), the slider in the menu area shows it
     let mut brightness = ui.get_brightness().clamp(5, 100);
-    BACKLIGHT_ON_US.store(brightness as u32 * BACKLIGHT_PERIOD_US / 100, Ordering::Relaxed);
+    BACKLIGHT_ON_US.store(
+        brightness as u32 * BACKLIGHT_PERIOD_US / 100,
+        Ordering::Relaxed,
+    );
 
     loop {
         let frame_start = Instant::now();
@@ -464,7 +488,11 @@ fn main() -> ! {
             && frame_start - pressed_since >= LONG_PRESS
             && (!long_press || frame_start - brightness_changed >= BRIGHTNESS_REPEAT)
         {
-            let step = if buttons.0 { BRIGHTNESS_STEP } else { -BRIGHTNESS_STEP };
+            let step = if buttons.0 {
+                BRIGHTNESS_STEP
+            } else {
+                -BRIGHTNESS_STEP
+            };
             ui.set_brightness((ui.get_brightness() + step).clamp(5, 100));
             brightness_changed = frame_start;
             long_press = true;
@@ -488,7 +516,10 @@ fn main() -> ! {
         let selected_brightness = ui.get_brightness().clamp(5, 100);
         if selected_brightness != brightness {
             brightness = selected_brightness;
-            BACKLIGHT_ON_US.store(brightness as u32 * BACKLIGHT_PERIOD_US / 100, Ordering::Relaxed);
+            BACKLIGHT_ON_US.store(
+                brightness as u32 * BACKLIGHT_PERIOD_US / 100,
+                Ordering::Relaxed,
+            );
         }
 
         // automatic sequence (switch in the menu area): the next instrument every 20 seconds,

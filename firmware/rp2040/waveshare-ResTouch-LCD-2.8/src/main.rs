@@ -32,16 +32,16 @@ use slint::platform::software_renderer::{
 
 slint::include_modules!();
 
-// system clock of the RP2040
-const SYSTEM_CLOCK: u32 = 200_000_000;
-
 // display in its native portrait orientation (rotation 0 degree)
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
+// System clock of the RP2040: its default and the highest officially specified one
+// It has been sucessfully tested with 200 MHz and a SPI frequency of 100 MHz
+const SYSTEM_CLOCK: u32 = 135_000_000;
 // SPI clock for the display, at most half of the system clock, with even dividers only:
 // 100 MHz or 50 MHz at 200 MHz system clock (the ST7789 datasheet specifies 62.5 MHz)
-// if the picture shows speckles or wrong colors, use 50_000_000
-const DISPLAY_SPI_FREQUENCY: u32 = 100_000_000;
+// if the picture shows speckles or wrong colors, use 31_250_000
+const DISPLAY_SPI_FREQUENCY: u32 = 62_500_000;
 // the XPT2046 touch controller shares SPI1, it is read at 2 MHz (its maximum clock)
 const TOUCH_SPI_FREQUENCY: u32 = 2_000_000;
 // conversions per axis: the first ones are dropped while the voltages on the panel settle after
@@ -58,15 +58,16 @@ const TOUCH_MIN_PRESSURE: i32 = 350;
 const TOUCH_CALIBRATION: [f32; 6] = [-0.06518, 0.00011, 253.63, 0.00043, -0.08898, 349.34];
 // shows the last raw and mapped touch position in the menu area, for the calibration
 const SHOW_TOUCH: bool = false;
-// shortest time per frame, limits the frame rate to 50 per second
-const FRAME_TIME: Duration = Duration::from_millis(20);
+// shortest time per frame, limits the frame rate to 60 per second
+const FRAME_TIME: Duration = Duration::from_millis(17);
 // instruments of the selector in the menu area, and how long each is shown in the automatic
 // sequence
 const INSTRUMENTS: i32 = 6;
 const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
 // RP2040 has 264 KB RAM: 150 KB frame buffer, 92 KB heap, the rest for stack and statics
 // path rendering temporarily allocates one contiguous block of one byte per pixel
-// of a Path element's box (largest is the inner disc: 192x192 = 36.9 KB)
+// of a Path element's box (largest is the disc of heading: 240x240 = 57.6 KB)
+// The instruments use about 61 KB of memory in total.
 const HEAP_SIZE: usize = 92 * 1024;
 
 // TLSF keeps fragmentation low, which matters for the large temporary path blocks
@@ -373,7 +374,7 @@ async fn main(_spawner: Spawner) {
 
     // slint setup
     // ReusedBuffer only redraws what changed, the frame buffer keeps the rest
-    // (needs the patched renderer, Slint 1.18.1 blends Paths outside of the redrawn region,
+    // (needs the patched renderer, the original blends Paths outside of the redrawn region,
     // see issues/rp2040)
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
     window.set_size(slint::PhysicalSize::new(

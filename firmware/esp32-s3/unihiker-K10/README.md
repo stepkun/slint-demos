@@ -4,8 +4,8 @@ Firmware that shows the instrument UI from `../../../ui` on a DFRobot UNIHIKER K
 with a 2.8" display).
 
 It runs the same UI and demo as the Pico firmwares in `../../rp2040` and `../../rp2350`, with the
-same patched Slint crates from [`../../vendor`](../../vendor/README.md), whose README describes
-the renderer patches. The READMEs of the Picos describe the performance work; this one lists
+same Slint and zeno forks, described in the
+[RP2040 README](../../rp2040/waveshare-ResTouch-LCD-2.8/README.md#slint-and-zeno-forks). The READMEs of the Picos describe the performance work; this one lists
 what is different on the K10.
 
 ## Hardware
@@ -32,6 +32,11 @@ The pins come from DFRobot's MicroPython firmware for the K10
 | Backlight | expander port 0 bit 0 (on/off only) |
 | Button A | expander port 1 bit 4 (low while pressed) |
 | Button B | expander port 0 bit 2 (low while pressed) |
+| Speaker amplifier (NS4168) LRCK / BCLK / data | GPIO38 / GPIO0 / GPIO45, held low |
+
+The speaker amplifier is always on (its CTRL pin is tied to 3V3). With its I2S inputs floating,
+it picks up the display transfers and the speaker chirps, so the firmware drives them low
+(pins from DFRobot's [K10 schematic](https://www.makerguides.com/wp-content/uploads/2025/12/UnihikerK10Schematic.pdf)).
 
 ## Build and flash
 
@@ -39,13 +44,14 @@ Requirements: the Xtensa Rust toolchain of Espressif and `espflash`.
 
 ```sh
 cargo install espup espflash
-espup install --targets esp32s3 --toolchain-version 1.95.0.0
+espup install --targets esp32s3 --toolchain-version 1.98.1.0
 . ~/export-esp.sh
 ```
 
-Use the toolchain 1.95.0.0: with 1.99.0.0, esp-hal 1.2 doesn't link ("dangerous relocation:
-l32r: literal placed after use" in its boot code `__pre_init`, which runs from IRAM while the
-newer compiler puts its literals into flash).
+Use the toolchain 1.98.1.0: with 1.97.0.0, LLVM crashes on `i-slint-core` of Slint master
+("Cannot select: XtensaISD::PCREL_WRAPPER" in `Flickable::scroll_to_point`), with 1.99.0.0,
+esp-hal 1.2 doesn't link ("dangerous relocation: l32r: literal placed after use" in its boot
+code `__pre_init`, which runs from IRAM while the newer compiler puts its literals into flash).
 
 Connect the K10 by USB, then:
 

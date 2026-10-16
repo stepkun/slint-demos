@@ -335,12 +335,12 @@ keeps them: an 8 KB mask and 512 rasterizer cells (8 KB). No allocation is large
 after that. Keep it that way: avoid large blocks that are allocated again and again. The host
 check fails if an allocation is larger than 8 KB, or if the TLSF heap runs out.
 
-Slint's software renderer (1.18.1) has some limitations that shape this firmware:
+Slint's software renderer has some limitations that shape this firmware:
 
 - **`Path` elements need a full frame buffer.** Line-by-line rendering silently skips them.
 - **Partial redraws only work with the patched renderer.** The original blends paths again
   outside the redrawn region, so their edges build up. See
-  `../../../issues/rp2040/partial-redraw-path` and [the vendored patches](../../vendor/README.md).
+  `../../../issues/rp2040/partial-redraw-path` and [Slint and zeno forks](#slint-and-zeno-forks).
 - **No rotation or scaling transforms.** Rotated parts of the UI are calculated with `sin()` and
   `cos()` instead.
 
@@ -366,13 +366,41 @@ These come from measuring on the device. They matter for everything that is redr
 - **Every element and component instance costs heap.** Nine small `Path` components for the bank
   ticks needed about 25 KB more than four combined paths.
 
-## Vendored patches
+## Slint and zeno forks
 
-The patched crates (`i-slint-core`, `i-slint-renderer-software` and `zeno`) are in
-`../../vendor`, shared by all firmwares and `tools/host-check`; their
-[README](../../vendor/README.md) lists the changes and when they can be removed.
+All firmwares, `tools/host-check`, the desktop app and the web demo use Slint and zeno from
+local forks next to `slint-demos` (`../slint`, Slint master 1.19.0-dev, and `../zeno`), wired in
+through the `[patch.crates-io]` section of their `Cargo.toml` (`slint`, `slint-build` and
+`zeno`; the other Slint crates come along with `slint`). Changes there affect every firmware:
+run the host check afterwards (see `../../../CLAUDE.md`).
+
+| Crate | Why |
+|---|---|
+| `zeno` 0.3.3 | Its rasterizer keeps about 18 KB on the stack, which overflows into the frame buffer. The fork uses heap storage with 1024 reserved cells, and adds `Scratch::with_capacity`, so the renderer can keep the cells. |
+| `i-slint-renderer-software` | See below. Worth offering upstream (`../../../issues/rp2040/renderer-fix`). |
+
+Changes in the software renderer (`lib.rs` and `path.rs`, marked with `patched:` comments):
+
+- **Partial redraw fix:** paths are only blended into the non-overlapping parts of the redrawn
+  region, like all other elements. Without it, partial redraws make path edges build up.
+- **Path masks in bands:** only the part of a path inside the redrawn region is rasterized, in
+  horizontal bands of at most 8 KB (`MAX_MASK_BYTES`). The original allocated one mask for the
+  whole path box. This bounds memory and skips work outside the redrawn region.
+- **Path buffers kept:** the mask, the rasterizer cells (`zeno::Scratch`, 512 cells reserved)
+  and the outline of strokes are allocated once with the renderer (`PathBuffers`) instead of for
+  every path, see [Heap fragmentation](#heap-fragmentation).
+- **Strokes converted to outlines once** (`zeno::apply`), so the bands only rasterize the filled
+  outline instead of stroking the path again for each band.
+- **Coverage scaling without divisions:** `(v + (v >> 8) + 1) >> 8` instead of `v / 255`. It
+  gives the same result for all products of two `u8`.
+
+Compared with the original renderer, a few pixels at anti-aliased edges differ by one colour
+step, because the path is shifted into each band. That isn't visible.
+
+The fix for `no_std` with `software-renderer-path` (`f32::rem_euclid` in `i-slint-core`), which
+Slint 1.18.1 needed, is already in Slint master.
 
 ## License
 
-GPL-3.0-only, like the whole project (see [LICENSE](../../../LICENSE)). The vendored crates in
-`../../vendor` keep their own licenses, see the main [README](../../../README.md#license).
+GPL-3.0-only, like the whole project (see [LICENSE](../../../LICENSE)). Slint and zeno keep
+their own licenses.

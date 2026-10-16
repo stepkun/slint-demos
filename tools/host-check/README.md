@@ -2,7 +2,7 @@
 
 Renders the instrument UI from `../../ui/test-app.slint` on the host the way the RP2040 firmware
 in `../../firmware/rp2040/waveshare-ResTouch-LCD-2.8` does, and checks heap use and partial
-redraws. Use it after changing the `.slint` files or the vendored crates, before flashing.
+redraws. Use it after changing the `.slint` files or the Slint and zeno forks, before flashing.
 
 It takes a few seconds and needs no hardware.
 
@@ -44,10 +44,10 @@ wrong arguments, `134` (abort) if the TLSF heap runs out.
 
 Slint is set up exactly like in the firmware:
 
-- `no_std` Slint 1.18.1 with the same features (`compat-1-2`, `unsafe-single-threaded`, `libm`,
+- `no_std` Slint with the same features (`compat-1-2`, `unsafe-single-threaded`, `libm`,
   `renderer-software`, `software-renderer-path`), resources embedded for the software renderer
-- the same `[patch.crates-io]` entries, pointing to `../../firmware/vendor`
-  (`i-slint-core`, `zeno` and the patched `i-slint-renderer-software`)
+- the same `[patch.crates-io]` entries, pointing to the Slint and zeno forks next to
+  `slint-demos` (`../slint`, `../zeno`) with the patched `i-slint-renderer-software`
 - 240x320 portrait, `Rgb565BigEndianPixel` frame buffer, `RepaintBufferType::ReusedBuffer`, so
   only the changed parts are redrawn
 - the demo loop of the firmware: roll as a triangle wave of ±30° over 8 s, pitch ±10° over 5 s,
@@ -105,11 +105,11 @@ The check fails if
 | TLSF heap runs out | 92 KB | `HEAP_SIZE` of the firmware. The heap peak shows the requested bytes, per instrument too (the peak of each frame counts for the instrument that exists in it, `shown` of the UI; the frame that creates an instrument counts for it). The use including the TLSF overhead isn't shown: embedded-alloc 0.7 can only measure it by walking all blocks, and that never returns when built with Rust 1.99 for i686. Measured with Rust 1.97 it was about 76 KB with all instruments. |
 | Heap peak | 92 KB | The requested bytes, mainly for `--system-alloc`. |
 | Largest allocation, frames | 8 KB | Allocations after the start. A large block, allocated again and again, may not be found any more once the heap is fragmented: that crashed the firmware with the airspeed indicator. The patched renderer allocates its path buffers (mask of at most 8 KB, `MAX_MASK_BYTES`, and 512 rasterizer cells) once at the start and keeps them; the largest of those is shown separately. |
-| Partial vs. full redraw | 1 colour step | After the last frame of each instrument the same state is rendered again from scratch (`RepaintBufferType::NewBuffer`) and compared per RGB565 channel. The banded path masks shift anti-aliased edges by one step, which is allowed. More means partial redraws leave artefacts, like the original 1.18.1 renderer does. |
+| Partial vs. full redraw | 1 colour step | After the last frame of each instrument the same state is rendered again from scratch (`RepaintBufferType::NewBuffer`) and compared per RGB565 channel. The banded path masks shift anti-aliased edges by one step, which is allowed. More means partial redraws leave artefacts, like the original renderer does. |
 
 Each failed check prints a `FAIL:` line.
 
-With the original `i-slint-renderer-software` 1.18.1 (patch entry removed), the TLSF heap runs
+With the original `i-slint-renderer-software` 1.18.1 (measured before the forks), the TLSF heap runs
 out in the second frame. With `--system-alloc` it fails with a 36 KB mask block and hundreds of
 pixels differing by more than one colour step between partial and full redraw.
 With the renderer before its path buffers were kept, the TLSF heap runs out at the switch from

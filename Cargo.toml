@@ -11,10 +11,16 @@ license = "GPL-3.0-only"
 
 [dependencies]
 # the rp2040 uses the software renderer, Path elements need an extra feature there
-slint = { version = "1.18.1", features = ["software-renderer-path"] }
+slint = { version = "1.19.0", features = ["software-renderer-path"] }
 
 [build-dependencies]
-slint-build = "1.18.1"
+slint-build = "1.19.0"
+
+# Slint and zeno from the local forks (next to slint-demos), the same as in the firmwares
+[patch.crates-io]
+slint = { path = "../slint/api/rs/slint" }
+slint-build = { path = "../slint/api/rs/build" }
+zeno = { path = "../zeno" }
 
 [profile.release]
 codegen-units = 1
