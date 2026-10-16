@@ -33,9 +33,9 @@ i-slint-core = { path = "../../vendor/i-slint-core" }
 zeno = { path = "../../vendor/zeno" }
 i-slint-renderer-software = { path = "../../vendor/i-slint-renderer-software" }
 
-[profile.release]
-# the ESP32-S3 has enough flash, debug info doesn't end up on the device
-debug = 2
-opt-level = 3
-codegen-units = 1
-lto = "fat"
+#[profile.release]
+## the ESP32-S3 has enough flash, debug info doesn't end up on the device
+#debug = 2
+#opt-level = 3
+#codegen-units = 1
+#lto = "fat"

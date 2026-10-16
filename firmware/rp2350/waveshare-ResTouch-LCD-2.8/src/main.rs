@@ -33,15 +33,15 @@ use slint::platform::software_renderer::{
 
 slint::include_modules!();
 
-// system clock of the RP2350: its default and the highest officially specified one
-const SYSTEM_CLOCK: u32 = 150_000_000;
-
 // display in its native portrait orientation (rotation 0 degree)
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
+// System clock of the RP2350: its default and the highest officially specified one
+// It has been sucessfully tested with 200 MHz and a SPI frequency of 100 MHz
+const SYSTEM_CLOCK: u32 = 150_000_000;
 // SPI clock for the display, at most half of the system clock, with even dividers only:
 // 75 MHz or 37.5 MHz at 150 MHz system clock (the ST7789 datasheet specifies 62.5 MHz, the
-// RP2040 firmware runs it at 100 MHz)
+// RP2040 firmware runs it at 62.5 MHz)
 // if the picture shows speckles or wrong colors, use 37_500_000
 const DISPLAY_SPI_FREQUENCY: u32 = 75_000_000;
 // the XPT2046 touch controller shares SPI1, it is read at 2 MHz (its maximum clock)
@@ -60,8 +60,8 @@ const TOUCH_MIN_PRESSURE: i32 = 350;
 const TOUCH_CALIBRATION: [f32; 6] = [-0.06518, 0.00011, 253.63, 0.00043, -0.08898, 349.34];
 // shows the last raw and mapped touch position in the menu area, for the calibration
 const SHOW_TOUCH: bool = false;
-// shortest time per frame, limits the frame rate to 50 per second
-const FRAME_TIME: Duration = Duration::from_millis(20);
+// shortest time per frame, limits the frame rate to 60 per second
+const FRAME_TIME: Duration = Duration::from_millis(17);
 // instruments of the selector in the menu area, and how long each is shown in the automatic
 // sequence
 const INSTRUMENTS: i32 = 6;
