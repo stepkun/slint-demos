@@ -85,6 +85,15 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # the Slint and zeno forks next to the repository, where [patch.crates-io] of the crates
+      # expects them
+      - name: Check out the forks
+        if: steps.crate.outputs.present == 'true'
+        working-directory: .
+        run: |
+          git clone --depth 1 https://github.com/stepkun/slint ../slint
+          git clone --depth 1 https://github.com/stepkun/zeno ../zeno
+
       - name: Install system packages
         if: steps.crate.outputs.present == 'true' && matrix.packages
         working-directory: .

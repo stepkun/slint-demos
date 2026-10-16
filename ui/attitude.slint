@@ -618,7 +618,7 @@ export component Attitude inherits Rectangle {
             viewbox-y: outer_thickness / 1px;
             viewbox-width: 2 * inner_radius;
             viewbox-height: 2 * inner_radius;
-            fill: Theme.vehicle;
+            fill: Theme.marker;
 
             // distances from the center: tip touches the inner edge of the ring
             property <float> tip: inner_radius;
@@ -656,7 +656,7 @@ export component Attitude inherits Rectangle {
             viewbox-y: size_float * 0.48;
             viewbox-width: size_float * 0.6;
             viewbox-height: size_float * 0.1;
-            stroke: Theme.vehicle;
+            stroke: Theme.marker;
             stroke-width: Theme.vehicle_width * scale;
             stroke-line-cap: round;
             stroke-line-join: round;
@@ -700,7 +700,7 @@ export component Attitude inherits Rectangle {
             width: 2 * Theme.vehicle_width * scale;
             height: 2 * Theme.vehicle_width * scale;
             border-radius: self.width / 2;
-            background: Theme.vehicle;
+            background: Theme.marker;
         }
     }
 }
