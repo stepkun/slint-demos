@@ -74,15 +74,16 @@ fragmentation match the device. The heap peak in the status line counts requeste
 A passing host check is not enough: the allocation order of the device differs, so keep room.
 Find the smallest heap that passes with `--heap-kb`, for the demo sequence and for random
 switching (`--random SEED --frames 4500`), see `tools/host-check/README.md`. The airspeed
-indicator crashed the device with 4 KB to spare (88 KB); now both pass in 83 KB.
+indicator crashed the device with 4 KB to spare (88 KB); now both pass in 86 KB (83 KB before
+the jet outline of the heading indicator).
 
 Without the hardware, the final check on the display is done by the maintainer. Say clearly
 what was only built or tested on the host.
 
 ## RP2040 constraints for `.slint` code
 
-The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which 61 KB are requested at
-peak on the device when switching at random, 59 KB in the host check, plus ~20 % TLSF
+The RP2040 has 264 KB RAM (150 KB frame buffer, 92 KB heap, of which 63 KB are requested at
+peak on the device and in the host check (the heading indicator needs the most), plus ~20 % TLSF
 overhead), no FPU and no divide instruction. The Slint software renderer has no
 rotation or scaling transforms.
 
@@ -114,6 +115,10 @@ rotation or scaling transforms.
 - **Keep per-frame blocks small.** A path whose elements change every frame (the turning card
   of the heading indicator) rebuilds its element list each frame; split it so these blocks stay
   small (~1-2 KB) and are still found in a fragmented heap.
+- **Keep strokes short.** The renderer reserves 512 rasterizer cells; a path whose band needs
+  more makes zeno double them to a 16 KB block, which doesn't fit into the heap. A stroke has
+  an edge on both sides, so it needs about twice the cells of a fill. The jet outline of the
+  heading indicator needed four open lines with round caps (~3.7 KB more heap than a fill, 3 KB less room in the host check).
 - **Moving Rectangles on whole pixels.** A round `Rectangle` at a fractional position draws
   anti-aliased edge pixels outside its redrawn region, which keep old values (the ball of the
   turn coordinator); `round()` its position and size.

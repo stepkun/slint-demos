@@ -1469,40 +1469,39 @@ export component Altimeter inherits Rectangle {
             vertical-alignment: TextVerticalAlignment.center;
         }
 
-        // 1000 ft hand: short and wide, below the 100 ft hand
+        // 1000 ft hand: short and wide, below the 100 ft hand, a short point at the tip and a long
+        // taper to a sharp point just behind the center
         // the box follows the hand, so only the area around the hand is redrawn when it moves
         Path {
             // shape in units along and across the hand
             property <float> tip: inner_radius * 0.50;
-            property <float> shoulder: inner_radius * 0.38;
+            property <float> shoulder: inner_radius * 0.42;
             property <float> tail: inner_radius * 0.10;
             property <float> half_width: Theme.marking_width * scale * 2 / 1px;
 
-            property <float> tail_left_x: hand_x(sin_1000, cos_1000, -tail, -half_width);
-            property <float> tail_left_y: hand_y(sin_1000, cos_1000, -tail, -half_width);
+            property <float> tail_x: hand_x(sin_1000, cos_1000, -tail, 0);
+            property <float> tail_y: hand_y(sin_1000, cos_1000, -tail, 0);
             property <float> shoulder_left_x: hand_x(sin_1000, cos_1000, shoulder, -half_width);
             property <float> shoulder_left_y: hand_y(sin_1000, cos_1000, shoulder, -half_width);
             property <float> tip_x: hand_x(sin_1000, cos_1000, tip, 0);
             property <float> tip_y: hand_y(sin_1000, cos_1000, tip, 0);
             property <float> shoulder_right_x: hand_x(sin_1000, cos_1000, shoulder, half_width);
             property <float> shoulder_right_y: hand_y(sin_1000, cos_1000, shoulder, half_width);
-            property <float> tail_right_x: hand_x(sin_1000, cos_1000, -tail, half_width);
-            property <float> tail_right_y: hand_y(sin_1000, cos_1000, -tail, half_width);
 
             // viewbox tight around the hand (1 unit margin), no stroke, so the box is the viewbox
-            viewbox-x: min(tail_left_x, shoulder_left_x, tip_x, shoulder_right_x, tail_right_x) - 1;
-            viewbox-y: min(tail_left_y, shoulder_left_y, tip_y, shoulder_right_y, tail_right_y) - 1;
-            viewbox-width: max(tail_left_x, shoulder_left_x, tip_x, shoulder_right_x, tail_right_x) - self.viewbox-x + 1;
-            viewbox-height: max(tail_left_y, shoulder_left_y, tip_y, shoulder_right_y, tail_right_y) - self.viewbox-y + 1;
+            viewbox-x: min(tail_x, shoulder_left_x, tip_x, shoulder_right_x) - 1;
+            viewbox-y: min(tail_y, shoulder_left_y, tip_y, shoulder_right_y) - 1;
+            viewbox-width: max(tail_x, shoulder_left_x, tip_x, shoulder_right_x) - self.viewbox-x + 1;
+            viewbox-height: max(tail_y, shoulder_left_y, tip_y, shoulder_right_y) - self.viewbox-y + 1;
             x: self.viewbox-x * 1px;
             y: self.viewbox-y * 1px;
             width: self.viewbox-width * 1px;
             height: self.viewbox-height * 1px;
-            fill: Theme.marking;
+            fill: Theme.vehicle.darker(20%);
 
             MoveTo {
-                x: tail_left_x;
-                y: tail_left_y;
+                x: tail_x;
+                y: tail_y;
             }
 
             LineTo {
@@ -1518,11 +1517,6 @@ export component Altimeter inherits Rectangle {
             LineTo {
                 x: shoulder_right_x;
                 y: shoulder_right_y;
-            }
-
-            LineTo {
-                x: tail_right_x;
-                y: tail_right_y;
             }
 
             Close { }
@@ -1555,7 +1549,7 @@ export component Altimeter inherits Rectangle {
             y: self.viewbox-y * 1px;
             width: self.viewbox-width * 1px;
             height: self.viewbox-height * 1px;
-            fill: Theme.marking;
+            fill: Theme.vehicle;
 
             MoveTo {
                 x: tail_left_x;

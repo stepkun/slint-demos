@@ -30,6 +30,7 @@ from pathlib import Path
 # the same values as in ui/theme.slint
 RING_RATIO = 0.10  # Theme.ring_ratio
 MARKING_WIDTH = 3.0  # Theme.marking_width in px at SIZE (Theme.reference_size)
+VEHICLE_WIDTH = 3.0  # Theme.vehicle_width in px at SIZE
 
 SIZE = 240  # Theme.reference_size, used for the checks, the output scales with the size
 CENTER = SIZE / 2
@@ -93,6 +94,12 @@ class Shape:
     polygons: list
     # drawn over the turning card on purpose (redrawn with it), not checked for overlap
     over_card: bool = False
+    # an outline instead of a filled shape: the stroke width as a .slint expression and in px at
+    # SIZE, for the checks
+    stroke_width: str = None
+    stroke_px: float = 0
+    # an outline of open lines instead of closed polygons, with round ends
+    closed: bool = True
 
 
 @dataclass
@@ -373,10 +380,34 @@ def shape_extremes(shape):
     return (min(xs), 0), (min(ys), 0), (max(xs), 0), (max(ys), 0)
 
 
+def shape_box(shape):
+    """box in px at SIZE, an outline reaches half its stroke width beyond the points"""
+    x0, y0, x1, y1 = box(shape_extremes(shape))
+    half = shape.stroke_px / 2
+    return x0 - half, y0 - half, x1 + half, y1 + half
+
+
 def shape_path(shape):
     out = [f"    // {shape.name}", "    Path {"]
-    out += viewbox_lines(shape_extremes(shape))
-    out.append(f"        fill: {shape.color};")
+    lines = viewbox_lines(shape_extremes(shape))
+    if shape.stroke_width:
+        # Slint fits the viewbox into the box less the stroke width, so the box is larger by
+        # the stroke width: the viewbox is then drawn 1:1, and the stroke fits into the box
+        lines = lines[:4] + [
+            "        x: self.viewbox-x * 1px - self.stroke-width / 2;",
+            "        y: self.viewbox-y * 1px - self.stroke-width / 2;",
+            "        width: self.viewbox-width * 1px + self.stroke-width;",
+            "        height: self.viewbox-height * 1px + self.stroke-width;",
+            f"        stroke: {shape.color};",
+            f"        stroke-width: {shape.stroke_width};",
+            # a miter join would reach far beyond the sharp nose
+            "        stroke-line-join: round;",
+        ]
+        if not shape.closed:
+            lines.append("        stroke-line-cap: round;")
+    else:
+        lines.append(f"        fill: {shape.color};")
+    out += lines
     for polygon in shape.polygons:
         for i, (x, y) in enumerate(polygon):
             out.append("")
@@ -384,8 +415,9 @@ def shape_path(shape):
             out.append(f"            x: {expression(0.5 + ratio(x), 0)};")
             out.append(f"            y: {expression(0.5 + ratio(y), 0)};")
             out.append("        }")
-        out.append("")
-        out.append("        Close { }")
+        if shape.closed:
+            out.append("")
+            out.append("        Close { }")
     out.append("    }")
     out.append("")
     return out
@@ -536,7 +568,7 @@ def generate(dial):
     rotor_report = ""
     if dial.rotor:
         rotor = dial.rotor
-        statics = boxes + [box(shape_extremes(sh)) for sh in dial.shapes]
+        statics = boxes + [shape_box(sh) for sh in dial.shapes]
         statics += [
             (CENTER + x0 * INNER_RADIUS, CENTER + y0 * INNER_RADIUS,
              CENTER + x1 * INNER_RADIUS, CENTER + y1 * INNER_RADIUS)
@@ -740,20 +772,47 @@ def heading():
         ]
 
     lubber = [(0.0, -0.86), (-0.09, -1.01), (0.09, -1.01)]
-    # aircraft seen from above, nose up: fuselage, wings, tail
-    aircraft = [
-        [(-0.03, -0.38), (0.03, -0.38), (0.03, 0.30), (-0.03, 0.30)],
-        [(-0.36, -0.08), (0.36, -0.08), (0.36, 0.0), (-0.36, 0.0)],
-        [(-0.14, 0.24), (0.14, 0.24), (0.14, 0.30), (-0.14, 0.30)],
+    # outline of a jet seen from above, nose up: pointed nose, swept wings and tailplane, a
+    # notch at the tail; the labels at the top and bottom have their inner edge at -0.59 / 0.59
+    right = [
+        (0.0, -0.570),     # nose
+        (0.029, -0.446),
+        (0.041, -0.341),
+        (0.050, -0.266),   # wing root, leading edge
+        (0.333, -0.029),   # wing tip
+        (0.325, 0.041),
+        (0.062, -0.059),   # wing root, trailing edge
+        (0.054, 0.095),
+        (0.041, 0.138),    # tailplane root, leading edge
+        (0.187, 0.241),    # tailplane tip
+        (0.175, 0.284),
+        (0.050, 0.241),    # tailplane root, trailing edge
+        (0.021, 0.262),
     ]
+    right.append((0.0, 0.233))  # tail notch
+    # moved down, away from the label at the top, it still keeps clear of the one at the bottom
+    right = [(x, y + 0.06) for x, y in right]
+    left = [(-x, y) for x, y in right]
     shapes = [
-        Shape("heading mark at the top, over the card", "Theme.vehicle", [lubber], over_card=True),
+        Shape("heading mark at the top, over the card", "Theme.marker", [lubber], over_card=True),
         # one shape each, a common box would be redrawn as a whole
         *(
-            Shape(f"mark at {a}deg, over the card", "Theme.vehicle", [ring_mark(a)], over_card=True)
+            Shape(f"mark at {a}deg, over the card", "Theme.marker", [ring_mark(a)], over_card=True)
             for a in (90, 180, 270)
         ),
-        Shape("aircraft symbol, over the card", "Theme.vehicle", aircraft, over_card=True),
+        # Four open lines, nose and wing, fuselage and tail of each side, their round ends meet.
+        # A stroke has an edge on both sides, so as one outline (and still as two halves) it
+        # needs more rasterizer cells than the renderer reserves (512), and zeno doubles them to
+        # a 16 KB block.
+        *(
+            Shape(
+                f"aircraft symbol, {side} {part}, over the card", "Theme.vehicle", [line],
+                over_card=True, stroke_width="Theme.vehicle_width * scale",
+                stroke_px=VEHICLE_WIDTH, closed=False,
+            )
+            for side, half in (("left", left), ("right", right))
+            for part, line in (("nose and wing", half[:7]), ("fuselage and tail", half[6:]))
+        ),
     ]
     # no bezel ring: the card reaches almost to the edge, like the 0.49 in ui/heading.slint
     return Dial("ui/heading.slint", 0, [], card=card, shapes=shapes, ring_ratio=0.01)

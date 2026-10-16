@@ -1555,7 +1555,7 @@ export component Airspeed inherits Rectangle {
         // unit, at the top between the end and the start of the scale
         Text {
             x: (dial_x(0deg, label_radius) - label_half_width) * 1px;
-            y: (dial_y(0deg, label_radius) - label_half_height) * 1px;
+            y: (dial_y(30deg, label_radius) - label_half_height) * 1px;
             width: 2px * label_half_width;
             height: 2px * label_half_height;
             text: "KT";
@@ -1593,7 +1593,7 @@ export component Airspeed inherits Rectangle {
             y: self.viewbox-y * 1px;
             width: self.viewbox-width * 1px;
             height: self.viewbox-height * 1px;
-            fill: Theme.marking;
+            fill: Theme.vehicle;
 
             MoveTo {
                 x: tail_left_x;

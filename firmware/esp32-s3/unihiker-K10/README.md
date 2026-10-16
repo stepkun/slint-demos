@@ -115,7 +115,7 @@ the application (the rest is taken by the caches and the startup code, see esp-h
 | Code in IRAM | about 5 KB |
 | Stack | about 48 KB |
 
-The instruments need about 61 KB of heap on the RP2040, so 112 KB leave plenty of room. The UI
+The instruments need about 63 KB of heap on the RP2040, so 112 KB leave plenty of room. The UI
 is shared with the RP2040, which only has a 92 KB heap: changes to the `.slint` files must
 still be checked with `tools/host-check`, which simulates the RP2040. The 8 MB PSRAM isn't used.
 

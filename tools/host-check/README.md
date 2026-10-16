@@ -126,7 +126,8 @@ for kb in $(seq 92 -1 70); do $B --heap-kb $kb > /dev/null 2>&1 || { echo "fails
 for kb in $(seq 92 -1 70); do $B --random 1 --frames 4500 --heap-kb $kb > /dev/null 2>&1 || { echo "random: fails at $kb KB"; break; }; done
 ```
 
-The demo sequence passes down to 82 KB, random switching down to 83 KB, 9 KB to spare. The
+The demo sequence and random switching pass down to 86 KB, 6 KB to spare (82 and 83 KB before
+the jet outline of the heading indicator). The
 airspeed indicator crashed the device with 4 KB to spare. Random switching found a crash the
 demo sequence can't show: switched to an instrument written above the shown one in
 `ui/test-app.slint`, the new one was created before the old one was destroyed (89 KB needed).

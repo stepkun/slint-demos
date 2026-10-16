@@ -78,8 +78,7 @@ The RP2350 has 520 KB of RAM; the firmware uses the 512 KB of SRAM0-7:
 | Other statics | about 5 KB |
 | Stack | about 100 KB |
 
-The instruments need about 61 KB of heap (requested bytes, measured on the RP2040 when
-switching at random), so the heap has plenty of room here. The UI is shared with the RP2040,
+The instruments need about 63 KB of heap (requested bytes, measured on the RP2040), so the heap has plenty of room here. The UI is shared with the RP2040,
 which only has a 92 KB heap: changes to the `.slint` files must still be checked with
 `tools/host-check`, which simulates the RP2040.
 
