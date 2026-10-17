@@ -62,8 +62,8 @@ export component AppWindow inherits Window {
     }
 
     // the instrument is a square fitting the shorter screen side
-    property <bool> portrait: root.screen_height > root.screen_width;
-    property <length> instrument_size: min(root.screen_width, root.screen_height);
+    private property <bool> portrait: root.screen_height > root.screen_width;
+    private property <length> instrument_size: min(root.screen_width, root.screen_height);
     Rectangle {
         width: root.screen_width;
         height: root.screen_height;
@@ -137,8 +137,8 @@ export component AppWindow inherits Window {
             // slider for the backlight brightness, from 5 % (left) to 100 % (right)
             Rectangle {
                 // the knob center moves between `margin` and `width - margin`
-                property <length> margin: 6px;
-                property <float> value: (root.brightness - 5) / 95;
+                private property <length> margin: 6px;
+                private property <float> value: (root.brightness - 5) / 95;
 
                 x: root.portrait ? 72px : 4px;
                 y: root.portrait ? 20px : 78px;
@@ -198,13 +198,13 @@ export component AppWindow inherits Window {
             // and TouchArea per button: every element and binding costs heap on the RP2040.
             // The order of the buttons is the order of the `instrument` values.
             Rectangle {
-                property <int> button_count: 6;
+                private property <int> button_count: 6;
                 // large enough for a finger on the display (portrait), shorter in landscape, so
                 // all buttons fit below the status line and the controls
-                property <length> button_size: root.portrait ? 32px : 22px;
-                property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
+                private property <length> button_size: root.portrait ? 32px : 22px;
+                private property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
                 // index of the touched button, from the position in the frame
-                property <int> touched: max(0, min(self.button_count - 1, floor(root.portrait ? touch.pressed-x / self.button_width : touch.pressed-y / self.button_size)));
+                private property <int> touched: max(0, min(self.button_count - 1, floor(root.portrait ? touch.pressed-x / self.button_width : touch.pressed-y / self.button_size)));
 
                 x: 4px;
                 y: parent.height - self.height - 4px;

@@ -8,22 +8,22 @@ export component Heading inherits Rectangle {
     // magnetic heading, 0deg is north, positive clockwise
     in property <angle> heading: 0deg;
 
-    property <length> size: min(self.width, self.height);
-    property <float> size_float: size / 1px;
+    private property <length> size: min(self.width, self.height);
+    private property <float> size_float: size / 1px;
     // widths and font sizes are those of Theme at Theme.reference_size, scaled with the size of
     // the instrument, so it keeps its proportions on the desktop; exactly 1 on the device
-    property <float> scale: size / Theme.reference_size;
+    private property <float> scale: size / Theme.reference_size;
     // font size on whole pixels: the device has glyphs of the sizes in Theme only, and a
     // fraction below them would fall back to the next smaller size
-    property <length> large_font_size: round(Theme.large_font_size * scale / 1px) * 1px;
+    private property <length> large_font_size: round(Theme.large_font_size * scale / 1px) * 1px;
 
     // all values in viewbox units, which are pixels of the instrument
-    property <float> center: size_float / 2;
+    private property <float> center: size_float / 2;
     // No bezel ring: the card reaches almost to the edge of the instrument, its inner radius is
     // 0.49 of the size (0.5 - RING_RATIO of the heading dial in tools/dial-paths.py).
     // large enough for two digits in Theme.large_font_size, the device clips text to its box
-    property <float> label_half_width: size_float * 0.06;
-    property <float> label_half_height: size_float * 0.045;
+    private property <float> label_half_width: size_float * 0.06;
+    private property <float> label_half_height: size_float * 0.045;
 
     // The whole card turns, so the card is redrawn every frame, like the inner disc of the
     // attitude indicator. The software renderer can't rotate, so every point of the card is
@@ -32,8 +32,8 @@ export component Heading inherits Rectangle {
     // The functions keep the compiler from inlining sin/cos into every place that uses these
     // properties: inlined, they are evaluated again for each coordinate, in f64, which is very
     // slow on the RP2040. As properties they are calculated once per change of the heading.
-    property <float> sin_heading: sin_of(root.heading);
-    property <float> cos_heading: cos_of(root.heading);
+    private property <float> sin_heading: sin_of(root.heading);
+    private property <float> cos_heading: cos_of(root.heading);
     pure function sin_of(a: angle) -> float {
         return sin(a);
     }

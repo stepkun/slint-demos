@@ -39,11 +39,11 @@ export component SixPack inherits Window {
     background: Theme.background;
 
     // space between and around the instruments
-    property <length> gap: 8px;
+    private property <length> gap: 8px;
     // the instruments are square, as large as the window allows, the grid is centered
-    property <length> cell: min((root.width - 4 * root.gap) / 3, (root.height - 3 * root.gap) / 2);
-    property <length> left: (root.width - 3 * root.cell - 2 * root.gap) / 2;
-    property <length> top: (root.height - 2 * root.cell - root.gap) / 2;
+    private property <length> cell: min((root.width - 4 * root.gap) / 3, (root.height - 3 * root.gap) / 2);
+    private property <length> left: (root.width - 3 * root.cell - 2 * root.gap) / 2;
+    private property <length> top: (root.height - 2 * root.cell - root.gap) / 2;
 
     // standard layout ("basic T"): upper row airspeed, attitude, altitude,
     // lower row turn coordinator, heading, vertical speed

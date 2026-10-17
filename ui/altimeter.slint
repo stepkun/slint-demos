@@ -8,26 +8,26 @@ export component Altimeter inherits Rectangle {
     // altitude in feet
     in property <float> altitude: 0;
 
-    property <length> size: min(self.width, self.height);
-    property <float> size_float: size / 1px;
+    private property <length> size: min(self.width, self.height);
+    private property <float> size_float: size / 1px;
     // widths and font sizes are those of Theme at Theme.reference_size, scaled with the size of
     // the instrument, so it keeps its proportions on the desktop; exactly 1 on the device
-    property <float> scale: size / Theme.reference_size;
+    private property <float> scale: size / Theme.reference_size;
     // font size on whole pixels: the device has glyphs of the sizes in Theme only, and a
     // fraction below them would fall back to the next smaller size
-    property <length> large_font_size: round(Theme.large_font_size * scale / 1px) * 1px;
+    private property <length> large_font_size: round(Theme.large_font_size * scale / 1px) * 1px;
 
     // all values in viewbox units, which are pixels of the instrument
-    property <float> center: size_float / 2;
+    private property <float> center: size_float / 2;
     // No bezel ring: the ticks reach almost to the edge of the instrument. 0.49 is
     // 0.5 - RING_RATIO of the altimeter dial in tools/dial-paths.py, keep both in sync.
-    property <float> inner_radius: size_float * 0.49;
+    private property <float> inner_radius: size_float * 0.49;
     // The digits are on the dial inside the long ticks (0.85 of the inner radius), like on a
     // real altimeter. The hands pass over them, then only the small digits are redrawn
     // (pre-rendered glyphs), no paths.
-    property <float> digit_radius: inner_radius * 0.72;
+    private property <float> digit_radius: inner_radius * 0.72;
     // half size of the box of a digit
-    property <float> digit_half: size_float * 0.05;
+    private property <float> digit_half: size_float * 0.05;
 
     // Only the hands move. Every static part has a box that no hand box can reach, so moving
     // hands never make the ticks or digits be redrawn: the 100 ft hand is at most 0.74 of the
@@ -40,10 +40,10 @@ export component Altimeter inherits Rectangle {
     // slow on the RP2040. As properties they are calculated once per change of the altitude.
     // one turn per 1000 ft (100 ft hand) and per 10000 ft (1000 ft hand), sin/cos make a
     // `mod()` unnecessary
-    property <float> sin_100: sin_of(root.altitude * 0.36deg);
-    property <float> cos_100: cos_of(root.altitude * 0.36deg);
-    property <float> sin_1000: sin_of(root.altitude * 0.036deg);
-    property <float> cos_1000: cos_of(root.altitude * 0.036deg);
+    private property <float> sin_100: sin_of(root.altitude * 0.36deg);
+    private property <float> cos_100: cos_of(root.altitude * 0.36deg);
+    private property <float> sin_1000: sin_of(root.altitude * 0.036deg);
+    private property <float> cos_1000: cos_of(root.altitude * 0.036deg);
     pure function sin_of(a: angle) -> float {
         return sin(a);
     }
@@ -1474,19 +1474,19 @@ export component Altimeter inherits Rectangle {
         // the box follows the hand, so only the area around the hand is redrawn when it moves
         Path {
             // shape in units along and across the hand
-            property <float> tip: inner_radius * 0.50;
-            property <float> shoulder: inner_radius * 0.42;
-            property <float> tail: inner_radius * 0.10;
-            property <float> half_width: Theme.marking_width * scale * 2 / 1px;
+            private property <float> tip: inner_radius * 0.50;
+            private property <float> shoulder: inner_radius * 0.42;
+            private property <float> tail: inner_radius * 0.10;
+            private property <float> half_width: Theme.marking_width * scale * 2 / 1px;
 
-            property <float> tail_x: hand_x(sin_1000, cos_1000, -tail, 0);
-            property <float> tail_y: hand_y(sin_1000, cos_1000, -tail, 0);
-            property <float> shoulder_left_x: hand_x(sin_1000, cos_1000, shoulder, -half_width);
-            property <float> shoulder_left_y: hand_y(sin_1000, cos_1000, shoulder, -half_width);
-            property <float> tip_x: hand_x(sin_1000, cos_1000, tip, 0);
-            property <float> tip_y: hand_y(sin_1000, cos_1000, tip, 0);
-            property <float> shoulder_right_x: hand_x(sin_1000, cos_1000, shoulder, half_width);
-            property <float> shoulder_right_y: hand_y(sin_1000, cos_1000, shoulder, half_width);
+            private property <float> tail_x: hand_x(sin_1000, cos_1000, -tail, 0);
+            private property <float> tail_y: hand_y(sin_1000, cos_1000, -tail, 0);
+            private property <float> shoulder_left_x: hand_x(sin_1000, cos_1000, shoulder, -half_width);
+            private property <float> shoulder_left_y: hand_y(sin_1000, cos_1000, shoulder, -half_width);
+            private property <float> tip_x: hand_x(sin_1000, cos_1000, tip, 0);
+            private property <float> tip_y: hand_y(sin_1000, cos_1000, tip, 0);
+            private property <float> shoulder_right_x: hand_x(sin_1000, cos_1000, shoulder, half_width);
+            private property <float> shoulder_right_y: hand_y(sin_1000, cos_1000, shoulder, half_width);
 
             // viewbox tight around the hand (1 unit margin), no stroke, so the box is the viewbox
             viewbox-x: min(tail_x, shoulder_left_x, tip_x, shoulder_right_x) - 1;
@@ -1497,7 +1497,7 @@ export component Altimeter inherits Rectangle {
             y: self.viewbox-y * 1px;
             width: self.viewbox-width * 1px;
             height: self.viewbox-height * 1px;
-            fill: Theme.vehicle.darker(20%);
+            fill: Theme.needles.darker(20%);
 
             MoveTo {
                 x: tail_x;
@@ -1524,21 +1524,21 @@ export component Altimeter inherits Rectangle {
 
         // 100 ft hand: long and narrow, on top
         Path {
-            property <float> tip: inner_radius * 0.74;
-            property <float> shoulder: inner_radius * 0.66;
-            property <float> tail: inner_radius * 0.12;
-            property <float> half_width: Theme.marking_width * scale * 0.8 / 1px;
+            private property <float> tip: inner_radius * 0.74;
+            private property <float> shoulder: inner_radius * 0.66;
+            private property <float> tail: inner_radius * 0.12;
+            private property <float> half_width: Theme.marking_width * scale * 0.8 / 1px;
 
-            property <float> tail_left_x: hand_x(sin_100, cos_100, -tail, -half_width);
-            property <float> tail_left_y: hand_y(sin_100, cos_100, -tail, -half_width);
-            property <float> shoulder_left_x: hand_x(sin_100, cos_100, shoulder, -half_width);
-            property <float> shoulder_left_y: hand_y(sin_100, cos_100, shoulder, -half_width);
-            property <float> tip_x: hand_x(sin_100, cos_100, tip, 0);
-            property <float> tip_y: hand_y(sin_100, cos_100, tip, 0);
-            property <float> shoulder_right_x: hand_x(sin_100, cos_100, shoulder, half_width);
-            property <float> shoulder_right_y: hand_y(sin_100, cos_100, shoulder, half_width);
-            property <float> tail_right_x: hand_x(sin_100, cos_100, -tail, half_width);
-            property <float> tail_right_y: hand_y(sin_100, cos_100, -tail, half_width);
+            private property <float> tail_left_x: hand_x(sin_100, cos_100, -tail, -half_width);
+            private property <float> tail_left_y: hand_y(sin_100, cos_100, -tail, -half_width);
+            private property <float> shoulder_left_x: hand_x(sin_100, cos_100, shoulder, -half_width);
+            private property <float> shoulder_left_y: hand_y(sin_100, cos_100, shoulder, -half_width);
+            private property <float> tip_x: hand_x(sin_100, cos_100, tip, 0);
+            private property <float> tip_y: hand_y(sin_100, cos_100, tip, 0);
+            private property <float> shoulder_right_x: hand_x(sin_100, cos_100, shoulder, half_width);
+            private property <float> shoulder_right_y: hand_y(sin_100, cos_100, shoulder, half_width);
+            private property <float> tail_right_x: hand_x(sin_100, cos_100, -tail, half_width);
+            private property <float> tail_right_y: hand_y(sin_100, cos_100, -tail, half_width);
 
             // viewbox tight around the hand (1 unit margin), no stroke, so the box is the viewbox
             viewbox-x: min(tail_left_x, shoulder_left_x, tip_x, shoulder_right_x, tail_right_x) - 1;
@@ -1549,7 +1549,7 @@ export component Altimeter inherits Rectangle {
             y: self.viewbox-y * 1px;
             width: self.viewbox-width * 1px;
             height: self.viewbox-height * 1px;
-            fill: Theme.vehicle;
+            fill: Theme.needles;
 
             MoveTo {
                 x: tail_left_x;

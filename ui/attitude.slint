@@ -10,28 +10,28 @@ export component Attitude inherits Rectangle {
     // pitch angle, positive is nose up
     in property <angle> pitch: 0deg;
 
-    property <length> size: min(self.width, self.height);
-    property <length> outer_thickness: size * Theme.ring_ratio;
-    property <float> size_float: size / 1px;
+    private property <length> size: min(self.width, self.height);
+    private property <length> outer_thickness: size * Theme.ring_ratio;
+    private property <float> size_float: size / 1px;
     // widths and font sizes are those of Theme at Theme.reference_size, scaled with the size of
     // the instrument, so it keeps its proportions on the desktop; exactly 1 on the device
-    property <float> scale: size / Theme.reference_size;
+    private property <float> scale: size / Theme.reference_size;
 
     // inner part, all values in viewbox units
     // the geometry is calculated instead of using transform-rotation,
     // because the software renderer (used on MCUs) does not support rotations
-    property <float> center: size_float / 2;
-    property <float> inner_radius: center - outer_thickness / 1px;
+    private property <float> center: size_float / 2;
+    private property <float> inner_radius: center - outer_thickness / 1px;
     // distance per degree of pitch, 25 degree reach the inner edge
-    property <float> pitch_scale: inner_radius / 25;
+    private property <float> pitch_scale: inner_radius / 25;
     // direction along the horizon (u) and perpendicular downwards (n)
     // The functions keep the compiler from inlining sin/cos into every place that uses these
     // properties: inlined, they are evaluated again for each coordinate, in f64, which is very
     // slow on the RP2040. As properties they are calculated once per change of the roll.
-    property <float> ux: cos_of(root.roll);
-    property <float> uy: -sin_of(root.roll);
-    property <float> nx: sin_of(root.roll);
-    property <float> ny: cos_of(root.roll);
+    private property <float> ux: cos_of(root.roll);
+    private property <float> uy: -sin_of(root.roll);
+    private property <float> nx: sin_of(root.roll);
+    private property <float> ny: cos_of(root.roll);
     pure function sin_of(a: angle) -> float {
         return sin(a);
     }
@@ -39,15 +39,15 @@ export component Attitude inherits Rectangle {
         return cos(a);
     }
     // distance of the horizon from the center, positive is below the center
-    property <float> pitch_offset: root.pitch / 1deg * pitch_scale;
+    private property <float> pitch_offset: root.pitch / 1deg * pitch_scale;
     // kept slightly inside the circle, so there is always some sky and ground
-    property <float> horizon_offset: max(-0.98 * inner_radius, min(0.98 * inner_radius, pitch_offset));
-    property <float> half_chord: sqrt(inner_radius * inner_radius - horizon_offset * horizon_offset);
+    private property <float> horizon_offset: max(-0.98 * inner_radius, min(0.98 * inner_radius, pitch_offset));
+    private property <float> half_chord: sqrt(inner_radius * inner_radius - horizon_offset * horizon_offset);
     // horizon end points on the inner circle
-    property <float> left_x: center + horizon_offset * nx - half_chord * ux;
-    property <float> left_y: center + horizon_offset * ny - half_chord * uy;
-    property <float> right_x: center + horizon_offset * nx + half_chord * ux;
-    property <float> right_y: center + horizon_offset * ny + half_chord * uy;
+    private property <float> left_x: center + horizon_offset * nx - half_chord * ux;
+    private property <float> left_y: center + horizon_offset * ny - half_chord * uy;
+    private property <float> right_x: center + horizon_offset * nx + half_chord * ux;
+    private property <float> right_y: center + horizon_offset * ny + half_chord * uy;
 
     // On MCUs every Path needs a temporary buffer of one byte per pixel of its box,
     // so the paths are combined where possible and their boxes are kept small.
@@ -621,9 +621,9 @@ export component Attitude inherits Rectangle {
             fill: Theme.marker;
 
             // distances from the center: tip touches the inner edge of the ring
-            property <float> tip: inner_radius;
-            property <float> base: center - outer_thickness * 1.5 / 1px;
-            property <float> half_base: outer_thickness / 3 / 1px;
+            private property <float> tip: inner_radius;
+            private property <float> base: center - outer_thickness * 1.5 / 1px;
+            private property <float> half_base: outer_thickness / 3 / 1px;
 
             // "up" rotated by -roll is -n, the base runs along u
             MoveTo {

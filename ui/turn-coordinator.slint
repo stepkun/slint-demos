@@ -10,36 +10,36 @@ export component TurnCoordinator inherits Rectangle {
     // slip or skid, the position of the ball: -1 and 1 are the ends of the tube, positive right
     in property <float> slip: 0;
 
-    property <length> size: min(self.width, self.height);
-    property <float> size_float: size / 1px;
+    private property <length> size: min(self.width, self.height);
+    private property <float> size_float: size / 1px;
     // widths and font sizes are those of Theme at Theme.reference_size, scaled with the size of
     // the instrument, so it keeps its proportions on the desktop; exactly 1 on the device
-    property <float> scale: size / Theme.reference_size;
+    private property <float> scale: size / Theme.reference_size;
     // font size on whole pixels: the device has glyphs of the sizes in Theme only, and a
     // fraction below them would fall back to the next smaller size
-    property <length> font_size: round(Theme.font_size * scale / 1px) * 1px;
+    private property <length> font_size: round(Theme.font_size * scale / 1px) * 1px;
 
     // all values in viewbox units, which are pixels of the instrument
-    property <float> center: size_float / 2;
+    private property <float> center: size_float / 2;
     // No bezel ring: the marks reach almost to the edge of the instrument. 0.49 is
     // 0.5 - RING_RATIO of the turn coordinator dial in tools/dial-paths.py, keep both in sync.
-    property <float> inner_radius: size_float * 0.49;
+    private property <float> inner_radius: size_float * 0.49;
     // L and R sit near the edge a little below the standard rate marks: at the marks themselves
     // the wing tips would reach them in a standard rate turn (boxes in tools/dial-paths.py)
-    property <float> label_radius: inner_radius * 0.95;
-    property <float> label_half_width: size_float * 0.046;
-    property <float> label_half_height: size_float * 0.03;
+    private property <float> label_radius: inner_radius * 0.95;
+    private property <float> label_half_width: size_float * 0.046;
+    private property <float> label_half_height: size_float * 0.03;
 
     // A standard rate turn (3 degree per second, a full circle in 2 minutes) banks the aircraft
     // symbol by 20 degree, onto the L and R marks. It stops at 6 degree per second (40 degree),
     // the same values as in tools/dial-paths.py.
-    property <angle> bank: max(-6, min(6, root.turn_rate)) * 20deg / 3;
+    private property <angle> bank: max(-6, min(6, root.turn_rate)) * 20deg / 3;
 
     // The functions keep the compiler from inlining sin/cos into every place that uses these
     // properties: inlined, they are evaluated again for each coordinate, in f64, which is very
     // slow on the RP2040. As properties they are calculated once per change of the bank.
-    property <float> sin_bank: sin_of(bank);
-    property <float> cos_bank: cos_of(bank);
+    private property <float> sin_bank: sin_of(bank);
+    private property <float> cos_bank: cos_of(bank);
     pure function sin_of(a: angle) -> float {
         return sin(a);
     }
@@ -57,14 +57,14 @@ export component TurnCoordinator inherits Rectangle {
 
     // inclinometer: a straight tube below the aircraft symbol, from 0.66 to 0.80 of the inner
     // radius below the center and 0.42 of it to each side (the same as in tools/dial-paths.py)
-    property <float> tube_half_width: inner_radius * 0.42;
-    property <float> tube_top: center + inner_radius * 0.66;
-    property <float> tube_height: inner_radius * 0.14;
-    property <float> ball_radius: round(tube_height / 2 - 1);
+    private property <float> tube_half_width: inner_radius * 0.42;
+    private property <float> tube_top: center + inner_radius * 0.66;
+    private property <float> tube_height: inner_radius * 0.14;
+    private property <float> ball_radius: round(tube_height / 2 - 1);
     // the ball travels between the ends of the tube
     // Its box is on whole pixels: at a fractional position the anti-aliased edge of the round
     // Rectangle reaches pixels outside the redrawn region, which then keep an old value.
-    property <float> ball_x: round(center + max(-1, min(1, root.slip)) * (tube_half_width - ball_radius - 1));
+    private property <float> ball_x: round(center + max(-1, min(1, root.slip)) * (tube_half_width - ball_radius - 1));
 
     background: transparent;    // show background of parent
 

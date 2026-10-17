@@ -8,34 +8,34 @@ export component Airspeed inherits Rectangle {
     // indicated airspeed in knots
     in property <float> airspeed: 0;
 
-    property <length> size: min(self.width, self.height);
-    property <float> size_float: size / 1px;
+    private property <length> size: min(self.width, self.height);
+    private property <float> size_float: size / 1px;
     // widths and font sizes are those of Theme at Theme.reference_size, scaled with the size of
     // the instrument, so it keeps its proportions on the desktop; exactly 1 on the device
-    property <float> scale: size / Theme.reference_size;
+    private property <float> scale: size / Theme.reference_size;
     // font size on whole pixels: the device has glyphs of the sizes in Theme only, and a
     // fraction below them would fall back to the next smaller size
-    property <length> font_size: round(Theme.font_size * scale / 1px) * 1px;
-    property <length> large_font_size: round(Theme.large_font_size * scale / 1px) * 1px;
+    private property <length> font_size: round(Theme.font_size * scale / 1px) * 1px;
+    private property <length> large_font_size: round(Theme.large_font_size * scale / 1px) * 1px;
 
     // all values in viewbox units, which are pixels of the instrument
-    property <float> center: size_float / 2;
+    private property <float> center: size_float / 2;
     // No bezel ring: the dial is as large as the instrument, the coloured arcs (out to 1.10 of
     // the inner radius) end just inside its edge. 0.45 is 0.5 - RING_RATIO of the airspeed dial
     // in tools/dial-paths.py, keep both in sync.
-    property <float> inner_radius: size_float * 0.45;
+    private property <float> inner_radius: size_float * 0.45;
     // The numbers are on the dial inside the long ticks (0.85 of the inner radius), like on a
     // real indicator. The needle passes over them, then only the small numbers are redrawn
     // (pre-rendered glyphs), no paths. The unit sits at the top edge, in the gap of the scale.
-    property <float> label_half_width: size_float * 0.06;
-    property <float> label_half_height: size_float * 0.03;
-    property <float> label_radius: center - label_half_height - 1;
+    private property <float> label_half_width: size_float * 0.06;
+    private property <float> label_half_height: size_float * 0.03;
+    private property <float> label_radius: center - label_half_height - 1;
     // the numbers in Theme.large_font_size: boxes large enough for three digits (the device
     // clips text to its box), far enough inside that they stay clear of the long ticks at 3 and
     // 9 o'clock
-    property <float> number_half_width: size_float * 0.075;
-    property <float> number_half_height: size_float * 0.045;
-    property <float> number_radius: inner_radius * 0.62;
+    private property <float> number_half_width: size_float * 0.075;
+    private property <float> number_half_height: size_float * 0.045;
+    private property <float> number_radius: inner_radius * 0.62;
 
     // Only the needle moves. Every static part has a box that no needle box can reach, so the
     // moving needle never makes the ticks, arcs or labels be redrawn: the needle is at most 0.74
@@ -45,14 +45,14 @@ export component Airspeed inherits Rectangle {
     // Scale: 0 to 40 kt on the first 30 degree, then 1.875 degree per kt, so 40 to 200 kt fill
     // 30 to 330 degree (the same in tools/dial-paths.py). Below 40 kt the needle rests near
     // the top like on a real indicator, above 210 kt it stops before the 0 kt position.
-    property <angle> needle_angle: root.airspeed < 40 ? max(root.airspeed, 0) * 0.75deg : 30deg + (min(root.airspeed, 210) - 40) * 1.875deg;
+    private property <angle> needle_angle: root.airspeed < 40 ? max(root.airspeed, 0) * 0.75deg : 30deg + (min(root.airspeed, 210) - 40) * 1.875deg;
 
     // direction of the needle as sine and cosine of its angle, clockwise from 12 o'clock
     // The functions keep the compiler from inlining sin/cos into every place that uses these
     // properties: inlined, they are evaluated again for each coordinate, in f64, which is very
     // slow on the RP2040. As properties they are calculated once per change of the airspeed.
-    property <float> sin_needle: sin_of(needle_angle);
-    property <float> cos_needle: cos_of(needle_angle);
+    private property <float> sin_needle: sin_of(needle_angle);
+    private property <float> cos_needle: cos_of(needle_angle);
     pure function sin_of(a: angle) -> float {
         return sin(a);
     }
@@ -1568,21 +1568,21 @@ export component Airspeed inherits Rectangle {
         // needle, its box follows it, so only the area around the needle is redrawn when it moves
         Path {
             // shape in units along and across the needle
-            property <float> tip: inner_radius * 0.74;
-            property <float> shoulder: inner_radius * 0.66;
-            property <float> tail: inner_radius * 0.12;
-            property <float> half_width: Theme.marking_width * scale * 0.8 / 1px;
+            private property <float> tip: inner_radius * 0.74;
+            private property <float> shoulder: inner_radius * 0.66;
+            private property <float> tail: inner_radius * 0.12;
+            private property <float> half_width: Theme.marking_width * scale * 0.8 / 1px;
 
-            property <float> tail_left_x: needle_x(-tail, -half_width);
-            property <float> tail_left_y: needle_y(-tail, -half_width);
-            property <float> shoulder_left_x: needle_x(shoulder, -half_width);
-            property <float> shoulder_left_y: needle_y(shoulder, -half_width);
-            property <float> tip_x: needle_x(tip, 0);
-            property <float> tip_y: needle_y(tip, 0);
-            property <float> shoulder_right_x: needle_x(shoulder, half_width);
-            property <float> shoulder_right_y: needle_y(shoulder, half_width);
-            property <float> tail_right_x: needle_x(-tail, half_width);
-            property <float> tail_right_y: needle_y(-tail, half_width);
+            private property <float> tail_left_x: needle_x(-tail, -half_width);
+            private property <float> tail_left_y: needle_y(-tail, -half_width);
+            private property <float> shoulder_left_x: needle_x(shoulder, -half_width);
+            private property <float> shoulder_left_y: needle_y(shoulder, -half_width);
+            private property <float> tip_x: needle_x(tip, 0);
+            private property <float> tip_y: needle_y(tip, 0);
+            private property <float> shoulder_right_x: needle_x(shoulder, half_width);
+            private property <float> shoulder_right_y: needle_y(shoulder, half_width);
+            private property <float> tail_right_x: needle_x(-tail, half_width);
+            private property <float> tail_right_y: needle_y(-tail, half_width);
 
             // viewbox tight around the needle (1 unit margin), no stroke, so the box is the viewbox
             viewbox-x: min(tail_left_x, shoulder_left_x, tip_x, shoulder_right_x, tail_right_x) - 1;
@@ -1593,7 +1593,7 @@ export component Airspeed inherits Rectangle {
             y: self.viewbox-y * 1px;
             width: self.viewbox-width * 1px;
             height: self.viewbox-height * 1px;
-            fill: Theme.vehicle;
+            fill: Theme.needles;
 
             MoveTo {
                 x: tail_left_x;
