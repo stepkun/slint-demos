@@ -16,8 +16,11 @@ The RP2040 is the target that matters: everything must work there.
 | `web/` | Web demo: the desktop app as WebAssembly (wasm-pack), own crate and `[workspace]`, deployed to GitHub Pages by `.github/workflows/pages.yml` |
 | `../slint`, `../zeno` | Local forks of Slint (master, patched software renderer) and zeno (heap storage), next to `slint-demos`; used by every crate here through `[patch.crates-io]` (`slint`, `slint-build`, `zeno`), see [Slint and zeno forks](firmware/rp2040/waveshare-ResTouch-LCD-2.8/README.md#slint-and-zeno-forks) |
 | `firmware/rp2040/waveshare-ResTouch-LCD-2.8/` | Embassy firmware, own crate and target dir |
+| `firmware/rp2040/waveshare-LCD-1.28-B/` | The same UI on a Waveshare RP2040-LCD-1.28-B (round GC9A01, 240x240, no touch or buttons: instrument only, automatic sequence), own crate |
 | `firmware/rp2350/waveshare-ResTouch-LCD-2.8/` | The same firmware for the Raspberry Pi Pico 2 (RP2350), own crate |
+| `firmware/rp2350/waveshare-Touch-LCD-1.28/` | The same UI on a Waveshare RP2350-Touch-LCD-1.28 (round GC9A01, 240x240, CST816S touch): instrument only, touch gestures evaluated by the firmware, own crate |
 | `firmware/esp32-s3/unihiker-K10/` | The same UI and demo on a DFRobot UNIHIKER K10 (ESP32-S3, ILI9341, buttons instead of touch), esp-hal, own crate |
+| `firmware/esp32-s3/waveshare-LCD-1.28/` | The same UI on a Waveshare ESP32-S3-LCD-1.28 (round GC9A01, 240x240, no touch): instrument only, the BOOT button selects it, esp-hal like the K10, own crate |
 | `tools/touch-calibration.py` | Fits the touch calibration of the firmware to measured points |
 | `tools/host-check/` | Renders the UI on the host like the firmware, checks heap use and partial redraws of every instrument |
 | `issues/rp2040/` | Host reproductions, bug report and renderer patches for Slint upstream |
@@ -32,17 +35,30 @@ cargo build                                   # desktop app (root crate)
 cd firmware/rp2040/waveshare-ResTouch-LCD-2.8
 cargo build --release                         # firmware, needs: rustup target add thumbv6m-none-eabi
 cargo run --release                           # flash, only with a Pico in BOOTSEL mode attached
+cd ../waveshare-LCD-1.28-B
+cargo build --release                         # round RP2040-LCD-1.28-B, same target
 cd ../../rp2350/waveshare-ResTouch-LCD-2.8
 cargo build --release                         # Pico 2, needs: rustup target add thumbv8m.main-none-eabihf
 cargo run --release                           # flash with picotool 2.x, Pico 2 in BOOTSEL mode
+cd ../waveshare-Touch-LCD-1.28
+cargo build --release                         # round RP2350-Touch-LCD-1.28, same target
 cd ../../esp32-s3/unihiker-K10
 cargo build --release                         # K10, needs: espup install --targets esp32s3 --toolchain-version 1.98.1.0
 cargo run --release                           # flash with espflash, K10 on USB
+cd ../waveshare-LCD-1.28
+cargo build --release                         # round ESP32-S3-LCD-1.28, same toolchain
 ```
 
 The RP2350 firmware is a copy of the RP2040 one with the chip specific parts changed (target,
 `memory.x` with the `IMAGE_DEF` block, clocks, heap, register addresses of the panic handler),
 see its README. Keep both `src/main.rs` in step when changing the display, touch or menu code.
+The RP2040-LCD-1.28-B firmware is a smaller copy without touch and menu: a square screen makes
+`ui/test-app.slint` leave out the menu area (`if root.screen_width != root.screen_height`).
+Check it with `tools/host-check --display 240x240`. The RP2350-Touch-LCD-1.28 firmware uses the
+same display code with the RP2350 parts of the Pico 2 firmware, and turns touch gestures into
+the `instrument`, `auto_select` and `brightness` properties. The ESP32-S3-LCD-1.28 firmware is
+the K10 firmware with that display and the BOOT button, and prints fps and heap peak on the
+serial port.
 The K10 firmware uses esp-hal instead of embassy and buttons instead of touch, but the same
 allocator, Slint setup and frame transfer as the Picos, see its README.
 The RP2040, with its 92 KB heap, stays the target the UI has to fit.

@@ -49,13 +49,22 @@ jobs:
             # the target thumbv6m-none-eabi comes from .cargo/config.toml of the firmware
             target: thumbv6m-none-eabi
             build: cargo build --release
+          - name: firmware RP2040-LCD-1.28-B
+            dir: firmware/rp2040/waveshare-LCD-1.28-B
+            target: thumbv6m-none-eabi
+            build: cargo build --release
+          - name: firmware RP2350-Touch-LCD-1.28
+            dir: firmware/rp2350/waveshare-Touch-LCD-1.28
+            target: thumbv8m.main-none-eabihf
+            build: cargo build --release
           - name: host check
             dir: tools/host-check
             # 32-bit like the RP2040, the target comes from .cargo/config.toml of the host check
             target: i686-unknown-linux-gnu
             packages: gcc-multilib
             # built first, so a hang shows whether it is the build or the check itself
-            build: cargo build --release && timeout 300 cargo run --release -- --png last-frame.png
+            # then the round 240x240 display without the menu area
+            build: cargo build --release && timeout 300 cargo run --release -- --png last-frame.png && timeout 300 cargo run --release -- --display 240x240
             artifact: last-frame.png
           - name: web demo
             dir: web

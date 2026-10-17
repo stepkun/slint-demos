@@ -70,7 +70,10 @@ export component AppWindow inherits Window {
 
         // landscape: menu area on the left, portrait: below the instrument
         // selects the instrument to show
-        menu_area := Rectangle {
+        // Only on a screen that leaves room for it: on a square one (the round RP2040-LCD-1.28,
+        // without touch) its parts would stick out of the empty area into the instrument, and
+        // it would take heap for nothing.
+        if root.screen_width != root.screen_height: menu_area := Rectangle {
             background: Theme.menu;
             x: 0;
             y: root.portrait ? root.instrument_size : 0;

@@ -1,0 +1,15 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[build]
+target = "thumbv6m-none-eabi"    # Cortex-M0+ of the RP2040
+
+[target.thumbv6m-none-eabi]
+# hold BOOT while plugging in the board (or hold BOOT and press RESET),
+# then `cargo run --release` copies the UF2 onto it
+runner = "elf2uf2-rs -d"
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+    "-C", "link-arg=-Tlink-rp.x",
+]

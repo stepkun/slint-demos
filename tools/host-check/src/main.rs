@@ -14,7 +14,8 @@ use slint::platform::software_renderer::{
 
 slint::include_modules!();
 
-// the same display as in the firmware: 240x320 portrait
+// the same display as in the firmware: 240x320 portrait (Pico-ResTouch-LCD-2.8), other sizes
+// with --display (240x240 for the round RP2040-LCD-1.28)
 const DISPLAY_WIDTH: usize = 240;
 const DISPLAY_HEIGHT: usize = 320;
 // limits of the firmware: heap size, and the largest block that may be allocated after the
@@ -160,11 +161,14 @@ struct Options {
     // seed of a random sequence of instruments instead of the demo sequence
     random: Option<u64>,
     png: Option<String>,
+    // display size in pixels
+    width: usize,
+    height: usize,
 }
 
 const USAGE: &str = "\
 usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--random SEED]
-                  [--heap-kb KB] [--system-alloc] [--png FILE]
+                  [--heap-kb KB] [--system-alloc] [--display WxH] [--png FILE]
 
   --frames N         number of animated frames (default 2100)
   --frame-ms MS      simulated time per frame in ms (default 67, about 15 fps like the firmware)
@@ -177,6 +181,8 @@ usage: host-check [--frames N] [--frame-ms MS] [--instrument NAME] [--random SEE
   --system-alloc     only count the allocations, instead of allocating from the TLSF heap of
                      the firmware (92 KB, the default on 32-bit builds like i686, which
                      tools/host-check/.cargo/config.toml selects)
+  --display WxH      display size in pixels (default 240x320, the Pico-ResTouch-LCD-2.8;
+                     240x240 for the RP2040-LCD-1.28)
   --png FILE         save the last partially redrawn frame as PNG";
 
 fn parse_options() -> Result<Options, String> {
@@ -188,6 +194,8 @@ fn parse_options() -> Result<Options, String> {
         heap_size: HEAP_LIMIT,
         random: None,
         png: None,
+        width: DISPLAY_WIDTH,
+        height: DISPLAY_HEIGHT,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -216,6 +224,18 @@ fn parse_options() -> Result<Options, String> {
                 options.heap_size = kb * 1024;
             }
             "--system-alloc" => options.tlsf = false,
+            "--display" => {
+                let size = value()?;
+                let parsed = size
+                    .split_once('x')
+                    .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)));
+                match parsed {
+                    Some((width, height)) if width > 0 && height > 0 => {
+                        (options.width, options.height) = (width, height)
+                    }
+                    _ => return Err(format!("--display: WxH expected, not {size}")),
+                }
+            }
             "--png" => options.png = Some(value()?),
             "-h" | "--help" => return Err(String::new()),
             _ => return Err(format!("unknown argument {arg}")),
@@ -262,11 +282,12 @@ fn compare_with_full_render(
     window: &MinimalSoftwareWindow,
     frame_buffer: &[Rgb565BigEndianPixel],
     full_buffer: &mut [Rgb565BigEndianPixel],
+    width: usize,
 ) -> Comparison {
     window.request_redraw();
     window.draw_if_needed(|renderer| {
         renderer.set_repaint_buffer_type(RepaintBufferType::NewBuffer);
-        renderer.render(full_buffer, DISPLAY_WIDTH);
+        renderer.render(full_buffer, width);
         renderer.set_repaint_buffer_type(RepaintBufferType::ReusedBuffer);
     });
 
@@ -286,19 +307,20 @@ fn compare_with_full_render(
             result.failing_pixels += 1;
             result
                 .first_failing
-                .get_or_insert((index % DISPLAY_WIDTH, index / DISPLAY_WIDTH));
+                .get_or_insert((index % width, index / width));
         }
     }
     result
 }
 
-fn save_png(path: &str, buffer: &[Rgb565BigEndianPixel]) -> Result<(), String> {
+fn save_png(
+    path: &str,
+    buffer: &[Rgb565BigEndianPixel],
+    width: usize,
+    height: usize,
+) -> Result<(), String> {
     let file = std::fs::File::create(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut encoder = png::Encoder::new(
-        std::io::BufWriter::new(file),
-        DISPLAY_WIDTH as u32,
-        DISPLAY_HEIGHT as u32,
-    );
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width as u32, height as u32);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
     let data: Vec<u8> = buffer
@@ -376,17 +398,17 @@ fn main() -> ExitCode {
     };
 
     // the frame buffers are static in the firmware, so they are allocated before counting starts
-    let mut frame_buffer = vec![Rgb565BigEndianPixel(0); DISPLAY_WIDTH * DISPLAY_HEIGHT];
+    let (width, height) = (options.width, options.height);
+    let mut frame_buffer = vec![Rgb565BigEndianPixel(0); width * height];
     // a full redraw must cover every pixel, magenta shows the ones that are not
-    let mut full_buffer =
-        vec![Rgb565BigEndianPixel(0xf81fu16.to_be()); DISPLAY_WIDTH * DISPLAY_HEIGHT];
+    let mut full_buffer = vec![Rgb565BigEndianPixel(0xf81fu16.to_be()); width * height];
     let mut frame_allocations = Vec::with_capacity(options.frames as usize);
     let mut comparisons: Vec<(usize, Comparison)> = Vec::with_capacity(options.frames as usize);
     let sequence = instrument_sequence(&options);
     let instrument_at = |frame: u64| sequence[frame as usize];
     // the first output allocates the stdout buffer, so it is done before counting starts too
     println!(
-        "host check: {DISPLAY_WIDTH}x{DISPLAY_HEIGHT}, {} frames of {} ms, {}{}",
+        "host check: {width}x{height}, {} frames of {} ms, {}{}",
         options.frames,
         options.frame_ms,
         if options.tlsf {
@@ -421,18 +443,15 @@ fn main() -> ExitCode {
 
     // slint setup, as in the firmware
     let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
-    window.set_size(slint::PhysicalSize::new(
-        DISPLAY_WIDTH as u32,
-        DISPLAY_HEIGHT as u32,
-    ));
+    window.set_size(slint::PhysicalSize::new(width as u32, height as u32));
     slint::platform::set_platform(Box::new(Platform {
         window: window.clone(),
     }))
     .unwrap();
 
     let ui = AppWindow::new().unwrap();
-    ui.set_screen_width(DISPLAY_WIDTH as f32);
-    ui.set_screen_height(DISPLAY_HEIGHT as f32);
+    ui.set_screen_width(width as f32);
+    ui.set_screen_height(height as f32);
     ui.show().unwrap();
     let setup_heap = HEAP_USED.load(Relaxed) - heap_base;
     // the larger blocks of the start, while the heap is empty, are allowed
@@ -482,7 +501,7 @@ fn main() -> ExitCode {
 
         let rendered = Cell::new(false);
         window.draw_if_needed(|renderer| {
-            let region = renderer.render(&mut frame_buffer, DISPLAY_WIDTH);
+            let region = renderer.render(&mut frame_buffer, width);
             redraw_rows += region.bounding_box_size().height as usize;
             rendered.set(true);
         });
@@ -497,7 +516,7 @@ fn main() -> ExitCode {
             let allocations = ALLOCATIONS.load(Relaxed);
             comparisons.push((
                 shown,
-                compare_with_full_render(&window, &frame_buffer, &mut full_buffer),
+                compare_with_full_render(&window, &frame_buffer, &mut full_buffer, width),
             ));
             HEAP_PEAK.store(peak, Relaxed);
             ALLOCATIONS.store(allocations, Relaxed);
@@ -566,7 +585,7 @@ fn main() -> ExitCode {
         println!("allocations, later frames:  {average:.1} on average, {min} to {max}");
     }
     println!(
-        "redrawn rows per frame:     {:.1} of {DISPLAY_HEIGHT} on average",
+        "redrawn rows per frame:     {:.1} of {height} on average",
         redraw_rows as f32 / options.frames as f32
     );
     println!(
@@ -609,7 +628,7 @@ fn main() -> ExitCode {
     }
 
     if let Some(path) = &options.png {
-        match save_png(path, &frame_buffer) {
+        match save_png(path, &frame_buffer, width, height) {
             Ok(()) => println!("last frame saved to {path}"),
             Err(error) => {
                 eprintln!("could not save the last frame: {error}");
