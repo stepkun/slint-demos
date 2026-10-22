@@ -1,0 +1,9 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+# The Xtensa cores of the ESP32-S3 need the Rust fork of Espressif, installed with
+# `espup install --targets esp32s3 --toolchain-version 1.98.1.0`: with 1.97.0.0, LLVM crashes on
+# i-slint-core of Slint master, with 1.99.0.0, esp-hal 1.2 doesn't link (the literals of its
+# boot code end up behind the code), see README.md
+
+[toolchain]
+channel = "esp"

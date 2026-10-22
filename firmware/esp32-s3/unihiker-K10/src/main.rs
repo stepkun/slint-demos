@@ -7,17 +7,11 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-
-use alloc::boxed::Box;
-use alloc::rc::Rc;
-use core::alloc::{GlobalAlloc, Layout};
 use core::cell::RefCell;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use critical_section::Mutex;
 
-use embedded_alloc::TlsfHeap as Heap;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
@@ -25,17 +19,17 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c};
 use esp_hal::spi::Mode;
-use esp_hal::spi::master::{Config as SpiConfig, Spi, SpiDma};
+use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::{Duration, Instant, Rate};
 use esp_hal::timer::OneShotTimer;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{Blocking, dma_rx_buffer, dma_tx_buffer, handler, main};
+use firmware_common::display::{self, ChipSelect};
+use firmware_common::{Sequence, Statistics, demo};
 use mipidsi::interface::SpiInterface;
 use mipidsi::models::ILI9341Rgb565;
 use mipidsi::options::{ColorInversion, ColorOrder, Orientation};
-use slint::platform::software_renderer::{
-    MinimalSoftwareWindow, RepaintBufferType, Rgb565BigEndianPixel,
-};
+use slint::platform::software_renderer::Rgb565BigEndianPixel;
 
 slint::include_modules!();
 
@@ -73,10 +67,6 @@ const BRIGHTNESS_REPEAT: Duration = Duration::from_millis(100);
 const BRIGHTNESS_STEP: i32 = 5;
 // shortest time per frame, limits the frame rate to 60 per second
 const FRAME_TIME: Duration = Duration::from_millis(17);
-// instruments of the selector in the menu area, and how long each is shown in the automatic
-// sequence
-const INSTRUMENTS: i32 = 6;
-const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
 // The ESP32-S3 has 512 KB internal SRAM, of which about 334 KB are left for the static data and
 // the stack of the application (esp-hal's memory.x, shared with the code in IRAM): 150 KB frame
 // buffer, 112 KB heap, the DMA buffer, the other statics and the stack. The instruments need
@@ -84,43 +74,6 @@ const INSTRUMENT_TIME: Duration = Duration::from_secs(20);
 const HEAP_SIZE: usize = 112 * 1024;
 // copy buffer of the SPI DMA, the frame buffer rows are sent through it in chunks of this size
 const DMA_BUFFER_SIZE: usize = 8 * 1024;
-
-// TLSF keeps fragmentation low, the same allocator as on the Picos
-static HEAP: Heap = Heap::empty();
-
-// heap bytes in use and the highest value so far, shown in the status display
-// (load/store only like in the Pico firmwares; the firmware is single threaded)
-static HEAP_USED: AtomicUsize = AtomicUsize::new(0);
-static HEAP_PEAK: AtomicUsize = AtomicUsize::new(0);
-
-/// Global allocator that counts the heap use like the Pico firmwares
-struct Allocator;
-
-unsafe impl GlobalAlloc for Allocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { HEAP.alloc(layout) };
-        // a failed allocation panics, the panic is printed on the USB serial port
-        if !ptr.is_null() {
-            let used = HEAP_USED.load(Ordering::Relaxed) + layout.size();
-            HEAP_USED.store(used, Ordering::Relaxed);
-            if used > HEAP_PEAK.load(Ordering::Relaxed) {
-                HEAP_PEAK.store(used, Ordering::Relaxed);
-            }
-        }
-        ptr
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        HEAP_USED.store(
-            HEAP_USED.load(Ordering::Relaxed) - layout.size(),
-            Ordering::Relaxed,
-        );
-        unsafe { HEAP.dealloc(ptr, layout) }
-    }
-}
-
-#[global_allocator]
-static ALLOCATOR: Allocator = Allocator;
 
 // The IO expander, used by the main loop (buttons) and by the backlight interrupt, and the timer
 // of that interrupt. The backlight is on for BACKLIGHT_ON_US of each period.
@@ -165,40 +118,9 @@ fn backlight_interrupt() {
 static mut FRAME_BUFFER: [Rgb565BigEndianPixel; DISPLAY_WIDTH * DISPLAY_HEIGHT] =
     [Rgb565BigEndianPixel(0); DISPLAY_WIDTH * DISPLAY_HEIGHT];
 
-/// Slint platform with the single window of the display
-struct Platform {
-    window: Rc<MinimalSoftwareWindow>,
-}
-
-impl slint::platform::Platform for Platform {
-    fn create_window_adapter(
-        &self,
-    ) -> Result<Rc<dyn slint::platform::WindowAdapter>, slint::PlatformError> {
-        Ok(self.window.clone())
-    }
-
-    fn duration_since_start(&self) -> core::time::Duration {
-        core::time::Duration::from_micros(Instant::now().duration_since_epoch().as_micros())
-    }
-}
-
-/// Chip select shared between the display init by mipidsi and the frame transfers
-struct ChipSelect<'a>(&'a RefCell<Output<'static>>);
-
-impl embedded_hal::digital::ErrorType for ChipSelect<'_> {
-    type Error = core::convert::Infallible;
-}
-
-impl embedded_hal::digital::OutputPin for ChipSelect<'_> {
-    fn set_low(&mut self) -> Result<(), Self::Error> {
-        self.0.borrow_mut().set_low();
-        Ok(())
-    }
-
-    fn set_high(&mut self) -> Result<(), Self::Error> {
-        self.0.borrow_mut().set_high();
-        Ok(())
-    }
+/// Time since the start, for Slint and the demo
+fn uptime() -> core::time::Duration {
+    core::time::Duration::from_micros(Instant::now().duration_since_epoch().as_micros())
 }
 
 /// The IO expander with the backlight and the buttons
@@ -267,74 +189,11 @@ impl Expander<'_> {
     }
 }
 
-/// Sends a command with its parameters to the ILI9341
-fn command(spi: &mut SpiDma<'_, Blocking>, dc: &mut Output<'_>, command: u8, parameters: &[u8]) {
-    use embedded_hal::spi::SpiBus;
-    // errors are ignored, a broken frame is overwritten with the next one
-    dc.set_low();
-    let _ = SpiBus::write(spi, &[command]);
-    dc.set_high();
-    if !parameters.is_empty() {
-        let _ = SpiBus::write(spi, parameters);
-    }
-}
-
-/// Sends full rows of the frame buffer to the display,
-/// `rows` must contain exactly the pixel data of the rows `first_row..=last_row`
-fn send_rows(
-    spi: &mut SpiDma<'_, Blocking>,
-    dc: &mut Output<'_>,
-    cs: &RefCell<Output<'static>>,
-    first_row: u16,
-    last_row: u16,
-    rows: &[u8],
-) {
-    use embedded_hal::spi::SpiBus;
-    cs.borrow_mut().set_low();
-    let last_column = (DISPLAY_WIDTH - 1) as u16;
-    // column address set
-    command(
-        spi,
-        dc,
-        0x2a,
-        &[0, 0, (last_column >> 8) as u8, last_column as u8],
-    );
-    // page (row) address set
-    command(
-        spi,
-        dc,
-        0x2b,
-        &[
-            (first_row >> 8) as u8,
-            first_row as u8,
-            (last_row >> 8) as u8,
-            last_row as u8,
-        ],
-    );
-    // memory write, followed by the pixel data, by DMA through the copy buffer
-    command(spi, dc, 0x2c, &[]);
-    let _ = SpiBus::write(spi, rows);
-    cs.borrow_mut().set_high();
-}
-
-/// Triangle wave between -amplitude and +amplitude with the given period
-fn triangle(time: Instant, period: Duration, amplitude: f32) -> f32 {
-    let period = period.as_millis();
-    let phase = (time.duration_since_epoch().as_millis() % period) as f32 / period as f32;
-    let value = if phase < 0.5 {
-        phase * 4.0 - 1.0
-    } else {
-        3.0 - phase * 4.0
-    };
-    value * amplitude
-}
-
 #[main]
 fn main() -> ! {
     // the heap must be ready before slint is used
-    unsafe {
-        embedded_alloc::init!(HEAP, HEAP_SIZE);
-    }
+    // a failed allocation panics, the panic is printed on the USB serial port
+    firmware_common::init_heap!(HEAP_SIZE);
 
     // 240 MHz, the highest clock of the ESP32-S3
     let p = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
@@ -402,21 +261,9 @@ fn main() -> ! {
     let (mut spi_device, mut lcd_dc) = interface.release();
     let spi = spi_device.bus_mut();
 
-    // slint setup
-    // ReusedBuffer only redraws what changed, the frame buffer keeps the rest
-    // (needs the patched renderer, the original blends Paths outside of the redrawn region,
-    // see issues/rp2040)
-    let window = MinimalSoftwareWindow::new(RepaintBufferType::ReusedBuffer);
-    window.set_size(slint::PhysicalSize::new(
-        DISPLAY_WIDTH as u32,
-        DISPLAY_HEIGHT as u32,
-    ));
-    slint::platform::set_platform(Box::new(Platform {
-        window: window.clone(),
-    }))
-    .unwrap();
+    let window = firmware_common::init_window(DISPLAY_WIDTH, DISPLAY_HEIGHT, uptime);
 
-    let ui = AppWindow::new().unwrap();
+    let ui = BasicPanelDevice::new().unwrap();
     // the ui arranges itself for portrait or landscape from the screen size
     ui.set_screen_width(DISPLAY_WIDTH as f32);
     ui.set_screen_height(DISPLAY_HEIGHT as f32);
@@ -427,14 +274,12 @@ fn main() -> ! {
         unsafe { &mut *core::ptr::addr_of_mut!(FRAME_BUFFER) };
 
     // frame statistics, shown once per second in the menu area
-    let mut statistics_start = Instant::now();
-    let mut frames: u32 = 0;
+    let mut statistics = Statistics::new(uptime());
     // the backlight goes on with the first frame, so the uninitialized panel isn't seen
     let mut backlight = false;
 
-    // automatic sequence of instruments: when it was last switched on or changed the instrument
-    let mut auto_select = false;
-    let mut instrument_shown_since = Instant::now();
+    // automatic sequence of instruments, switched by both buttons together
+    let mut sequence = Sequence::default();
     // buttons pressed in the last frame, an action happens when a button is released
     let mut last_buttons = (false, false);
     // both buttons were pressed together since the last release of all buttons
@@ -453,19 +298,10 @@ fn main() -> ! {
 
     loop {
         let frame_start = Instant::now();
+        let time = uptime();
 
         // demo movement until real sensor values are available
-        ui.set_roll(triangle(frame_start, Duration::from_secs(8), 30.0));
-        ui.set_pitch(triangle(frame_start, Duration::from_secs(5), 10.0));
-        ui.set_altitude(5000.0 + triangle(frame_start, Duration::from_secs(60), 5000.0));
-        ui.set_airspeed(105.0 + triangle(frame_start, Duration::from_secs(30), 75.0));
-        // a steady turn, once around per minute
-        ui.set_heading((frame_start.duration_since_epoch().as_millis() % 60_000) as f32 * 0.006);
-        // a little beyond the scale, so the needle reaches its stop
-        ui.set_vertical_speed(triangle(frame_start, Duration::from_secs(40), 2200.0));
-        // turns beyond the standard rate (3 degree per second), the ball swinging a little
-        ui.set_turn_rate(triangle(frame_start, Duration::from_secs(30), 5.0));
-        ui.set_slip(triangle(frame_start, Duration::from_secs(12), 0.6));
+        firmware_common::show!(ui, demo::values(time));
 
         // Buttons instead of the touch buttons of the menu: A shows the previous, B the next
         // instrument, both together toggle the automatic sequence. Like a touch on an
@@ -502,8 +338,12 @@ fn main() -> ! {
             if both_pressed {
                 ui.set_auto_select(!ui.get_auto_select());
             } else if !long_press {
-                let step = if released.0 { INSTRUMENTS - 1 } else { 1 };
-                ui.set_instrument((ui.get_instrument() + step) % INSTRUMENTS);
+                let instrument = ui.get_instrument();
+                ui.set_instrument(if released.0 {
+                    firmware_common::previous_instrument(instrument)
+                } else {
+                    firmware_common::next_instrument(instrument)
+                });
                 ui.set_auto_select(false);
             }
             both_pressed = false;
@@ -522,49 +362,24 @@ fn main() -> ! {
             );
         }
 
-        // automatic sequence (switch in the menu area): the next instrument every 20 seconds,
-        // counted from when the switch was turned on
-        if ui.get_auto_select() {
-            if !auto_select {
-                auto_select = true;
-                instrument_shown_since = frame_start;
-            } else if frame_start - instrument_shown_since >= INSTRUMENT_TIME {
-                ui.set_instrument((ui.get_instrument() + 1) % INSTRUMENTS);
-                instrument_shown_since = frame_start;
-            }
-        } else {
-            auto_select = false;
+        if sequence.next(ui.get_auto_select(), time) {
+            ui.set_instrument(firmware_common::next_instrument(ui.get_instrument()));
         }
 
         slint::platform::update_timers_and_animations();
 
-        let mut changed_rows = None;
-        window.draw_if_needed(|renderer| {
-            let region = renderer.render(frame_buffer, DISPLAY_WIDTH);
-            let (origin, size) = (region.bounding_box_origin(), region.bounding_box_size());
-            if size.width > 0 && size.height > 0 {
-                changed_rows = Some((origin.y as usize, origin.y as usize + size.height as usize));
-            }
-        });
-        if let Some((first_row, end_row)) = changed_rows {
-            // full rows are contiguous in the frame buffer, so they are sent with one transfer
-            let rows = &frame_buffer[first_row * DISPLAY_WIDTH..end_row * DISPLAY_WIDTH];
-            // SAFETY: Rgb565BigEndianPixel is a plain u16 in display byte order
-            let rows = unsafe {
-                core::slice::from_raw_parts(
-                    rows.as_ptr() as *const u8,
-                    core::mem::size_of_val(rows),
-                )
-            };
-            send_rows(
+        if let Some((first_row, last_row, rows)) =
+            firmware_common::render(&window, frame_buffer, DISPLAY_WIDTH)
+        {
+            display::send_rows(
                 spi,
                 &mut lcd_dc,
                 &lcd_cs,
-                first_row as u16,
-                (end_row - 1) as u16,
+                DISPLAY_WIDTH,
+                (first_row, last_row),
                 rows,
             );
-            frames += 1;
+            statistics.frame();
             if !backlight {
                 // the first interrupt switches the backlight on
                 critical_section::with(|cs| {
@@ -576,18 +391,8 @@ fn main() -> ! {
             }
         }
 
-        let elapsed = Instant::now() - statistics_start;
-        if elapsed >= Duration::from_secs(1) && frames > 0 {
-            let fps = frames as f32 * 1000.0 / elapsed.as_millis() as f32;
-            let heap_peak = HEAP_PEAK.load(Ordering::Relaxed) / 1024;
-            ui.set_status(slint::format!(
-                "{:.1} fps, heap peak {} of {} KB",
-                fps,
-                heap_peak,
-                HEAP_SIZE / 1024
-            ));
-            statistics_start = Instant::now();
-            frames = 0;
+        if let Some(status) = statistics.status(uptime()) {
+            ui.set_status(status);
         }
 
         // wait only for the rest of the frame time

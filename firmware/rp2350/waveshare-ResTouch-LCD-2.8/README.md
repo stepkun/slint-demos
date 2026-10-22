@@ -44,6 +44,21 @@ cargo run --release
 
 `picotool` loads the firmware onto the Pico 2 and restarts it.
 
+### Combined display
+
+The second binary of the crate, `src/bin/combined.rs`, shows the combined display of
+aircraft-gauges (attitude, vertical speed, altitude, heading and airspeed, 320x240) on the whole
+display in landscape, with the same demo values and no menu:
+
+```sh
+cargo run --release --bin combined
+```
+
+A tap on the display shows or hides the frame rate and the heap peak at the top (only the touch
+interrupt is used, no calibration). If the picture is upside down, set `ROTATION` to
+`Rotation::Deg270`. The combined display needs about 85 KB of heap and a rectangular 4:3
+display: it has no firmware for the RP2040 and the round displays.
+
 ## Differences to the RP2040 firmware
 
 | | RP2040 (Pico W) | RP2350 (Pico 2) |
@@ -51,9 +66,9 @@ cargo run --release
 | Rust target | `thumbv6m-none-eabi` | `thumbv8m.main-none-eabihf` |
 | Boot | boot2 in the first 256 bytes of the flash | `IMAGE_DEF` block of embassy-rp, found by the boot ROM (`memory.x`) |
 | Flashing | `elf2uf2-rs` | `picotool` |
-| System clock | 200 MHz (overclocked, 1.15 V) | 150 MHz (default) |
-| SPI clock (display) | 100 MHz | 75 MHz (half of the system clock) |
-| Backlight PWM | 200 MHz / 10 / 1000 = 20 kHz | 150 MHz / 10 / 750 = 20 kHz |
+| System clock | 135 MHz | 150 MHz (default) |
+| SPI clock (display) | 67.5 MHz (half of the system clock) | 75 MHz (half of the system clock) |
+| Backlight PWM | 135 MHz / 10 / 1000 = 13.5 kHz | 150 MHz / 10 / 750 = 20 kHz |
 | Float and division | ROM routines and hardware divider (`intrinsics`) | FPU and divide instructions of the Cortex-M33 |
 | Heap | 92 KB | 256 KB |
 | Panic handler | register addresses of the RP2040 | register addresses of the RP2350 (checked against rp-pac) |
@@ -63,9 +78,15 @@ cargo run --release
 150 MHz is the default and the highest officially specified system clock of the RP2350;
 `ClockConfig::system_freq(150_000_000)` keeps the default configuration and core voltage.
 The SPI clock can be at most half of the system clock, with even dividers only: 75 MHz or
-37.5 MHz. The ST7789 datasheet specifies 62.5 MHz, but the RP2040 firmware runs it at 100 MHz
-without problems. If the picture shows speckles or wrong colors, use 37.5 MHz
-(`DISPLAY_SPI_FREQUENCY` in `src/main.rs`).
+37.5 MHz. The ST7789 datasheet specifies 62.5 MHz, the RP2040 firmware runs it at 67.5 MHz and
+has run it at 100 MHz without problems. If the picture shows speckles or wrong colors, use
+37.5 MHz (`DISPLAY_SPI_FREQUENCY` in `src/main.rs`).
+
+A higher system clock would be the largest possible speed-up, but is outside the specification of
+the RP2350: the code runs from the flash through a cache, whose clock follows the system clock.
+On the RP2040 about half of the time of a frame is spent waiting for the flash, see
+[A higher system clock](../../rp2040/waveshare-ResTouch-LCD-2.8/README.md#a-higher-system-clock).
+On the RP2350 a higher clock can make the instruments up to 30 % faster.
 
 ### Memory
 
@@ -78,7 +99,7 @@ The RP2350 has 520 KB of RAM; the firmware uses the 512 KB of SRAM0-7:
 | Other statics | about 5 KB |
 | Stack | about 100 KB |
 
-The instruments need about 63 KB of heap (requested bytes, measured on the RP2040), so the heap has plenty of room here. The UI is shared with the RP2040,
+The instruments need about 58 KB of heap (requested bytes, measured on the RP2040), so the heap has plenty of room here. The UI is shared with the RP2040,
 which only has a 92 KB heap: changes to the `.slint` files must still be checked with
 `tools/host-check`, which simulates the RP2040.
 

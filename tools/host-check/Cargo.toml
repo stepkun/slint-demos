@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
 
-# Renders ui/test-app.slint on the host the way the RP2040 firmware does and checks the heap
+# Renders ui/basic-panel-device.slint on the host the way the RP2040 firmware does and checks the heap
 # use and the partial redraws, see README.md.
 # Slint is used exactly like in the firmware: no_std, same version, same features and patches.
 [dependencies]
@@ -20,15 +20,17 @@ critical-section = { version = "1", features = ["std"] }
 
 [build-dependencies]
 slint-build = "=1.19.0"
+# the instruments, next to slint-demos
+aircraft-gauges = { path = "../../../aircraft-gauges" }
 
 # own workspace, so the crate is not taken as part of the desktop app in the repository root
 [workspace]
 
-# Slint and zeno from the local forks (next to slint-demos), with the patches for MCUs:
-# software renderer with paths only blended in the redrawn region (partial redraw bug), path
-# masks in bands of limited size and kept path buffers, zeno with heap storage instead of
-# about 18 KB on the stack. Keep the same in all firmwares and tools/host-check.
+# Slint and zeno from the forks on GitHub (stepkun/slint branch patched, stepkun/zeno), with the
+# patches for MCUs: software renderer with paths only blended in the redrawn region (partial
+# redraw bug), path masks in bands of limited size and kept path buffers, zeno with heap storage
+# instead of about 18 KB on the stack. Keep the same in all firmwares and tools/host-check.
 [patch.crates-io]
-slint = { path = "../../../slint/api/rs/slint" }
-slint-build = { path = "../../../slint/api/rs/build" }
-zeno = { path = "../../../zeno" }
+slint = { git = "https://github.com/stepkun/slint", branch = "patched" }
+slint-build = { git = "https://github.com/stepkun/slint", branch = "patched" }
+zeno = { git = "https://github.com/stepkun/zeno", branch = "main" }

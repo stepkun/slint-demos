@@ -1,0 +1,48 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[package]
+name = "instruments-firmware-rp2350-touch-lcd-1-28"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+# the basic panel: the six instruments, one at a time (the name of this program in all the
+# projects, like `combined` for the combined display)
+[[bin]]
+name = "basic-panel"
+path = "src/main.rs"
+
+[dependencies]
+# heap, Slint platform, frame transfer, demo and instrument sequence of all firmwares
+firmware-common = { path = "../../common", features = ["rp"] }
+cortex-m-rt = "0.7"
+embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
+# rp235xa: the RP2350A of the RP2350-Touch-LCD-1.28; embassy-rp adds the IMAGE_DEF block the boot
+# ROM needs. No `intrinsics`: the Cortex-M33 divides in hardware and has a single precision FPU.
+embassy-rp = { version = "0.10", features = ["rp235xa", "time-driver", "critical-section-impl"] }
+embassy-time = "0.5"
+embedded-hal-bus = "0.3"
+mipidsi = "0.10"
+slint = { version = "1.19.0", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
+
+[build-dependencies]
+slint-build = "1.19.0"
+# the instruments, next to slint-demos
+aircraft-gauges = { path = "../../../../aircraft-gauges" }
+
+# Slint and zeno from the forks on GitHub (stepkun/slint branch patched, stepkun/zeno), with the
+# patches for MCUs: software renderer with paths only blended in the redrawn region (partial
+# redraw bug), path masks in bands of limited size and kept path buffers, zeno with heap storage
+# instead of about 18 KB on the stack. Keep the same in all firmwares and tools/host-check.
+[patch.crates-io]
+slint = { git = "https://github.com/stepkun/slint", branch = "patched" }
+slint-build = { git = "https://github.com/stepkun/slint", branch = "patched" }
+zeno = { git = "https://github.com/stepkun/zeno", branch = "main" }
+
+# fat LTO and one codegen unit, like the desktop app: about 3 % faster on the RP2040 than the
+# default (measured with the heading and attitude indicators), with larger code (about 1.1 MB)
+# and a longer release build
+[profile.release]
+codegen-units = 1
+lto = true

@@ -1,0 +1,63 @@
+// Copyright © 2026 Stephan Kunz
+// SPDX-License-Identifier: GPL-3.0-only
+// The combined display of aircraft-gauges in a window: attitude, vertical speed, altitude, heading
+// and airspeed in 320x240, for the desktop app (src/bin/combined.rs), the web demo
+// (web/combined.html) and the RP2350 ResTouch firmware in landscape (its binary `combined`).
+// Combined needs a rectangular 4:3 display and about 85 KB of heap: not for the RP2040 and the
+// round displays.
+
+import { Combined, Theme } from "@aircraft-gauges/lib.slint";
+// on MCUs there are no system fonts, so the font is embedded
+import "@aircraft-gauges/fonts/NotoSans-Regular.ttf";
+
+export component CombinedPanel inherits Window {
+    // bank angle of the vehicle, positive is a right bank
+    in property <angle> roll: 0deg;
+    // pitch angle of the vehicle, positive is nose up
+    in property <angle> pitch: 0deg;
+    // altitude in feet
+    in property <float> altitude: 0;
+    // indicated airspeed in knots
+    in property <float> airspeed: 0;
+    // magnetic heading, 0deg is north
+    in property <angle> heading: 0deg;
+    // vertical speed in feet per minute, positive is climbing
+    in property <float> vertical_speed: 0;
+    // diagnostic text over the top of the display (the firmware shows its frame rate there while
+    // the display is tapped on), empty: nothing
+    in property <string> status;
+
+    title: "Combined display";
+    // the size of the display of the device; on the desktop the display scales with the window
+    preferred-width: 320px;
+    preferred-height: 240px;
+    default-font-family: "Noto Sans";
+    // the window fills the background, so no other element needs to
+    background: Theme.background;
+
+    Combined {
+        roll: root.roll;
+        pitch: root.pitch;
+        altitude: root.altitude;
+        airspeed: root.airspeed;
+        heading: root.heading;
+        vertical_speed: root.vertical_speed;
+    }
+
+    if root.status != "": Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: 16px;
+        background: Theme.menu;
+
+        Text {
+            x: 4px;
+            width: parent.width - 8px;
+            text: root.status;
+            color: Theme.marking;
+            font-size: Theme.menu_font_size;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
+    }
+}

@@ -7,28 +7,42 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
 
+# the basic panel: the six instruments, one at a time (the name of this program in all the
+# projects, like `combined` for the combined display)
+[[bin]]
+name = "basic-panel"
+path = "src/main.rs"
+
 [dependencies]
-cortex-m = "0.7"
+# heap, Slint platform, frame transfer, demo and instrument sequence of all firmwares
+firmware-common = { path = "../../common", features = ["rp"] }
 cortex-m-rt = "0.7"
 embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread"] }
 # intrinsics: integer division by the hardware divider and float operations by the
 # optimized routines in the RP2040 boot ROM, instead of the slow generic software versions
 embassy-rp = { version = "0.10", features = ["rp2040", "time-driver", "critical-section-impl", "intrinsics", "rom-func-cache"] }
 embassy-time = "0.5"
-embedded-alloc = "0.7"
-embedded-hal = "1"
 embedded-hal-bus = "0.3"
 mipidsi = "0.10"
 slint = { version = "1.19.0", default-features = false, features = ["compat-1-2", "unsafe-single-threaded", "libm", "renderer-software", "software-renderer-path"] }
 
 [build-dependencies]
 slint-build = "1.19.0"
+# the instruments, next to slint-demos
+aircraft-gauges = { path = "../../../../aircraft-gauges" }
 
-# Slint and zeno from the local forks (next to slint-demos), with the patches for MCUs:
-# software renderer with paths only blended in the redrawn region (partial redraw bug), path
-# masks in bands of limited size and kept path buffers, zeno with heap storage instead of
-# about 18 KB on the stack. Keep the same in all firmwares and tools/host-check.
+# Slint and zeno from the forks on GitHub (stepkun/slint branch patched, stepkun/zeno), with the
+# patches for MCUs: software renderer with paths only blended in the redrawn region (partial
+# redraw bug), path masks in bands of limited size and kept path buffers, zeno with heap storage
+# instead of about 18 KB on the stack. Keep the same in all firmwares and tools/host-check.
 [patch.crates-io]
-slint = { path = "../../../../slint/api/rs/slint" }
-slint-build = { path = "../../../../slint/api/rs/build" }
-zeno = { path = "../../../../zeno" }
+slint = { git = "https://github.com/stepkun/slint", branch = "patched" }
+slint-build = { git = "https://github.com/stepkun/slint", branch = "patched" }
+zeno = { git = "https://github.com/stepkun/zeno", branch = "main" }
+
+# fat LTO and one codegen unit, like the desktop app: about 3 % faster on the RP2040 than the
+# default (measured with the heading and attitude indicators), with larger code (about 1.1 MB)
+# and a longer release build
+[profile.release]
+codegen-units = 1
+lto = true

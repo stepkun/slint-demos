@@ -3,17 +3,19 @@
 // Test app for Instruments
 
 
-import { Attitude } from "attitude.slint";
-import { Altimeter } from "altimeter.slint";
-import { Airspeed } from "airspeed.slint";
-import { Heading } from "heading.slint";
-import { VerticalSpeed } from "vertical-speed.slint";
-import { TurnCoordinator } from "turn-coordinator.slint";
-import { Theme } from "theme.slint";
+import {
+    Attitude,
+    Altimeter,
+    Airspeed,
+    Heading,
+    VerticalSpeed,
+    TurnCoordinator,
+    Theme,
+} from "@aircraft-gauges/lib.slint";
 // on MCUs there are no system fonts, so the font is embedded
-import "fonts/NotoSans-Regular.ttf";
+import "@aircraft-gauges/fonts/NotoSans-Regular.ttf";
 
-export component AppWindow inherits Window {
+export component BasicPanelDevice inherits Window {
     // bank angle of the vehicle, positive is a right bank
     in property <angle> roll: 0deg;
     // pitch angle of the vehicle, positive is nose up
@@ -28,7 +30,7 @@ export component AppWindow inherits Window {
     in property <float> vertical_speed: 0;
     // rate of turn in degree per second, positive is a right turn
     in property <float> turn_rate: 0;
-    // slip or skid, the position of the ball: -1 and 1 are the ends of the tube, positive right
+    // slip or skid, the position of the ball: -1 and 1 are the ends of the tube, positive left
     in property <float> slip: 0;
     // shown instrument: 0 attitude indicator, 1 altimeter, 2 airspeed indicator,
     // 3 heading indicator, 4 vertical speed indicator, 5 turn coordinator
@@ -62,15 +64,18 @@ export component AppWindow inherits Window {
     }
 
     // the instrument is a square fitting the shorter screen side
-    property <bool> portrait: root.screen_height > root.screen_width;
-    property <length> instrument_size: min(root.screen_width, root.screen_height);
+    private property <bool> portrait: root.screen_height > root.screen_width;
+    private property <length> instrument_size: min(root.screen_width, root.screen_height);
     Rectangle {
         width: root.screen_width;
         height: root.screen_height;
 
         // landscape: menu area on the left, portrait: below the instrument
         // selects the instrument to show
-        menu_area := Rectangle {
+        // Only on a screen that leaves room for it: on a square one (the round RP2040-LCD-1.28,
+        // without touch) its parts would stick out of the empty area into the instrument, and
+        // it would take heap for nothing.
+        if root.screen_width != root.screen_height: menu_area := Rectangle {
             background: Theme.menu;
             x: 0;
             y: root.portrait ? root.instrument_size : 0;
@@ -137,8 +142,8 @@ export component AppWindow inherits Window {
             // slider for the backlight brightness, from 5 % (left) to 100 % (right)
             Rectangle {
                 // the knob center moves between `margin` and `width - margin`
-                property <length> margin: 6px;
-                property <float> value: (root.brightness - 5) / 95;
+                private property <length> margin: 6px;
+                private property <float> value: (root.brightness - 5) / 95;
 
                 x: root.portrait ? 72px : 4px;
                 y: root.portrait ? 20px : 78px;
@@ -198,13 +203,13 @@ export component AppWindow inherits Window {
             // and TouchArea per button: every element and binding costs heap on the RP2040.
             // The order of the buttons is the order of the `instrument` values.
             Rectangle {
-                property <int> button_count: 6;
+                private property <int> button_count: 6;
                 // large enough for a finger on the display (portrait), shorter in landscape, so
                 // all buttons fit below the status line and the controls
-                property <length> button_size: root.portrait ? 32px : 22px;
-                property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
+                private property <length> button_size: root.portrait ? 32px : 22px;
+                private property <length> button_width: root.portrait ? self.width / self.button_count : self.width;
                 // index of the touched button, from the position in the frame
-                property <int> touched: max(0, min(self.button_count - 1, floor(root.portrait ? touch.pressed-x / self.button_width : touch.pressed-y / self.button_size)));
+                private property <int> touched: max(0, min(self.button_count - 1, floor(root.portrait ? touch.pressed-x / self.button_width : touch.pressed-y / self.button_size)));
 
                 x: 4px;
                 y: parent.height - self.height - 4px;

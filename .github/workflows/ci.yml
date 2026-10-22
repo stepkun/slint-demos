@@ -17,18 +17,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # the static dial paths in ui/*.slint are generated, a changed generator or hand-edited
-  # paths must be regenerated, and no static box may overlap a hand
-  dial-paths:
-    name: generated dial paths
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v5
-      - name: tools/dial-paths.py --check
-        if: hashFiles('tools/dial-paths.py') != ''
-        run: python3 tools/dial-paths.py --check
-
   check:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
@@ -49,13 +37,26 @@ jobs:
             # the target thumbv6m-none-eabi comes from .cargo/config.toml of the firmware
             target: thumbv6m-none-eabi
             build: cargo build --release
+          - name: firmware RP2040-LCD-1.28-B
+            dir: firmware/rp2040/waveshare-LCD-1.28-B
+            target: thumbv6m-none-eabi
+            build: cargo build --release
+          - name: firmware RP2350-ResTouch-LCD-2.8
+            dir: firmware/rp2350/waveshare-ResTouch-LCD-2.8
+            target: thumbv8m.main-none-eabihf
+            build: cargo build --release
+          - name: firmware RP2350-Touch-LCD-1.28
+            dir: firmware/rp2350/waveshare-Touch-LCD-1.28
+            target: thumbv8m.main-none-eabihf
+            build: cargo build --release
           - name: host check
             dir: tools/host-check
             # 32-bit like the RP2040, the target comes from .cargo/config.toml of the host check
             target: i686-unknown-linux-gnu
             packages: gcc-multilib
             # built first, so a hang shows whether it is the build or the check itself
-            build: cargo build --release && timeout 300 cargo run --release -- --png last-frame.png
+            # then the round 240x240 display without the menu area
+            build: cargo build --release && timeout 300 cargo run --release -- --png last-frame.png && timeout 300 cargo run --release -- --display 240x240
             artifact: last-frame.png
           - name: web demo
             dir: web
@@ -85,14 +86,17 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # the Slint and zeno forks next to the repository, where [patch.crates-io] of the crates
-      # expects them
-      - name: Check out the forks
+      # the aircraft-gauges library next to the repository, where the path dependencies of the
+      # crates expect it; Slint and zeno come from the forks on GitHub (`[patch.crates-io]`)
+      # the branch of the same name, if aircraft-gauges has one (a change in both repositories),
+      # otherwise its default branch
+      - name: Check out aircraft-gauges
         if: steps.crate.outputs.present == 'true'
         working-directory: .
         run: |
-          git clone --depth 1 https://github.com/stepkun/slint ../slint
-          git clone --depth 1 https://github.com/stepkun/zeno ../zeno
+          git clone --depth 1 --branch "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" \
+            https://github.com/stepkun/aircraft-gauges ../aircraft-gauges \
+            || git clone --depth 1 https://github.com/stepkun/aircraft-gauges ../aircraft-gauges
 
       - name: Install system packages
         if: steps.crate.outputs.present == 'true' && matrix.packages

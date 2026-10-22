@@ -2,17 +2,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The six basic flight instruments in the standard layout, for the desktop app
 
-import { Attitude } from "attitude.slint";
-import { Altimeter } from "altimeter.slint";
-import { Airspeed } from "airspeed.slint";
-import { Heading } from "heading.slint";
-import { VerticalSpeed } from "vertical-speed.slint";
-import { TurnCoordinator } from "turn-coordinator.slint";
-import { Theme } from "theme.slint";
+import {
+    Attitude,
+    Altimeter,
+    Airspeed,
+    Heading,
+    VerticalSpeed,
+    TurnCoordinator,
+    Theme,
+} from "@aircraft-gauges/lib.slint";
 // the same embedded font as on the device, so the desktop shows what the display shows
-import "fonts/NotoSans-Regular.ttf";
+import "@aircraft-gauges/fonts/NotoSans-Regular.ttf";
 
-export component SixPack inherits Window {
+export component BasicPanel inherits Window {
     // bank angle of the vehicle, positive is a right bank
     in property <angle> roll: 0deg;
     // pitch angle of the vehicle, positive is nose up
@@ -27,7 +29,7 @@ export component SixPack inherits Window {
     in property <float> vertical_speed: 0;
     // rate of turn in degree per second, positive is a right turn
     in property <float> turn_rate: 0;
-    // slip or skid, the position of the ball: -1 and 1 are the ends of the tube, positive right
+    // slip or skid, the position of the ball: -1 and 1 are the ends of the tube, positive left
     in property <float> slip: 0;
 
     title: "Instruments";
@@ -39,11 +41,11 @@ export component SixPack inherits Window {
     background: Theme.background;
 
     // space between and around the instruments
-    property <length> gap: 8px;
+    private property <length> gap: 8px;
     // the instruments are square, as large as the window allows, the grid is centered
-    property <length> cell: min((root.width - 4 * root.gap) / 3, (root.height - 3 * root.gap) / 2);
-    property <length> left: (root.width - 3 * root.cell - 2 * root.gap) / 2;
-    property <length> top: (root.height - 2 * root.cell - root.gap) / 2;
+    private property <length> cell: min((root.width - 4 * root.gap) / 3, (root.height - 3 * root.gap) / 2);
+    private property <length> left: (root.width - 3 * root.cell - 2 * root.gap) / 2;
+    private property <length> top: (root.height - 2 * root.cell - root.gap) / 2;
 
     // standard layout ("basic T"): upper row airspeed, attitude, altitude,
     // lower row turn coordinator, heading, vertical speed

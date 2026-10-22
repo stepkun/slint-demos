@@ -11,35 +11,18 @@
                  font-family: sans-serif; }
     main { display: flex; flex-direction: column; align-items: center; justify-content: center;
            min-height: 100%; gap: 12px; }
-    canvas { outline: none; }
+    h1 { margin: 0; font-size: 20px; font-weight: normal; }
     p { margin: 0; font-size: 14px; }
     a { color: #dddddd; }
   </style>
 </head>
 <body>
   <main>
-    <!-- Slint draws the window into the canvas with this id, in its preferred size -->
-    <canvas id="canvas" data-slint-auto-resize-to-preferred="true" unselectable="on"></canvas>
-    <p id="status">Loading the instruments …</p>
+    <h1>Flight instruments built with <a href="https://slint.dev">Slint</a></h1>
+    <p><a href="basic-panel.html">Basic panel</a>: the six basic flight instruments</p>
+    <p><a href="combined.html">Combined display</a>: attitude, vertical speed, altitude, heading and
+      airspeed in one</p>
+    <p>Both with demo values, as WebAssembly in the browser.</p>
   </main>
-  <script type="module">
-    // built by wasm-pack into pkg/, see README.md
-    import init from "./pkg/web_demo.js";
-    const status = document.getElementById("status");
-    const started = () => {
-      status.innerHTML = 'Six basic flight instruments with demo values, built with ' +
-        '<a href="https://slint.dev">Slint</a>';
-    };
-    init().then(started, (error) => {
-      // the event loop of the web backend ends the start function with an exception on
-      // purpose, it keeps running in the browser: that is a successful start
-      if (String(error).includes("Using exceptions for control flow")) {
-        started();
-      } else {
-        status.textContent = "The instruments could not be started: " + error;
-        console.error(error);
-      }
-    });
-  </script>
 </body>
 </html>

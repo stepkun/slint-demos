@@ -1,6 +1,5 @@
 {
-  "workbench.startupEditor": "none",
-  "workbench.sideBar.location": "left",
-  "files.autoSave": "off",
-  "explorer.openEditors.visible": 0
+  "slint.libraryPaths": {
+    "aircraft-gauges": "../aircraft-gauges/ui"
+  }
 }

@@ -1,0 +1,9 @@
+// Copyright © 2026 Stephan Kunz
+// SPDX-License-Identifier: GPL-3.0-only
+// The windows of the RP2350 ResTouch firmware: one instrument with the menu (its binary
+// `basic-panel`) and the combined display in landscape (its binary `combined`).
+// One file, because a crate includes the code of one compiled .slint file
+// (`slint::include_modules!`); the other firmwares only show basic-panel-device.slint.
+
+export { BasicPanelDevice } from "basic-panel-device.slint";
+export { CombinedPanel } from "combined.slint";

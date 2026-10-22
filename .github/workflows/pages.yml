@@ -26,12 +26,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # the Slint and zeno forks next to the repository, where [patch.crates-io] of web/Cargo.toml
-      # expects them
-      - name: Check out the forks
+      # the aircraft-gauges library next to the repository, where the build-dependencies of
+      # web/Cargo.toml expect it; Slint and zeno come from the forks on GitHub (`[patch.crates-io]`)
+      # the branch of the same name, if aircraft-gauges has one (a change in both repositories),
+      # otherwise its default branch
+      - name: Check out aircraft-gauges
         run: |
-          git clone --depth 1 https://github.com/stepkun/slint ../slint
-          git clone --depth 1 https://github.com/stepkun/zeno ../zeno
+          git clone --depth 1 --branch "${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}" \
+            https://github.com/stepkun/aircraft-gauges ../aircraft-gauges \
+            || git clone --depth 1 https://github.com/stepkun/aircraft-gauges ../aircraft-gauges
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -58,7 +61,7 @@ jobs:
       - name: Collect the site
         run: |
           mkdir -p site/pkg
-          cp web/index.html site/
+          cp web/index.html web/basic-panel.html web/combined.html site/
           cp web/pkg/web_demo.js web/pkg/web_demo_bg.wasm site/pkg/
           ls -la site site/pkg
 

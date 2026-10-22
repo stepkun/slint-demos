@@ -1,6 +1,6 @@
 # Host check
 
-Renders the instrument UI from `../../ui/test-app.slint` on the host the way the RP2040 firmware
+Renders the instrument UI from `../../ui/basic-panel-device.slint` on the host the way the RP2040 firmware
 in `../../firmware/rp2040/waveshare-ResTouch-LCD-2.8` does, and checks heap use and partial
 redraws. Use it after changing the `.slint` files or the Slint and zeno forks, before flashing.
 
@@ -33,6 +33,7 @@ Options:
 | `--random SEED` | – | Switch to a random other instrument every 1 to 10 s instead of the demo sequence, like tapping the buttons on the device. The same seed gives the same sequence |
 | `--heap-kb KB` | 92 | Size of the TLSF heap. The smallest size that still passes shows the room left for the differences to the device, see below |
 | `--system-alloc` | – | Only count the allocations, with the system allocator, instead of using the TLSF heap of the firmware |
+| `--display WxH` | 240x320 | Display size in pixels: 240x320 for the Pico-ResTouch-LCD-2.8, 240x240 for the round RP2040-LCD-1.28-B (a square screen has no menu area) |
 | `--png FILE` | – | Save the last partially redrawn frame as PNG |
 
 Pass the options after `--`, for example `cargo run --release -- --png last.png`.
@@ -46,8 +47,8 @@ Slint is set up exactly like in the firmware:
 
 - `no_std` Slint with the same features (`compat-1-2`, `unsafe-single-threaded`, `libm`,
   `renderer-software`, `software-renderer-path`), resources embedded for the software renderer
-- the same `[patch.crates-io]` entries, pointing to the Slint and zeno forks next to
-  `slint-demos` (`../slint`, `../zeno`) with the patched `i-slint-renderer-software`
+- the same `[patch.crates-io]` entries, pointing to the Slint and zeno forks on GitHub
+  (stepkun/slint branch `patched`, stepkun/zeno) with the patched `i-slint-renderer-software`
 - 240x320 portrait, `Rgb565BigEndianPixel` frame buffer, `RepaintBufferType::ReusedBuffer`, so
   only the changed parts are redrawn
 - the demo loop of the firmware: roll as a triangle wave of ±30° over 8 s, pitch ±10° over 5 s,
@@ -130,8 +131,11 @@ The demo sequence and random switching pass down to 86 KB, 6 KB to spare (82 and
 the jet outline of the heading indicator). The
 airspeed indicator crashed the device with 4 KB to spare. Random switching found a crash the
 demo sequence can't show: switched to an instrument written above the shown one in
-`ui/test-app.slint`, the new one was created before the old one was destroyed (89 KB needed).
-`test-app.slint` now removes the old one first.
+`ui/basic-panel-device.slint`, the new one was created before the old one was destroyed (89 KB needed).
+`basic-panel-device.slint` now removes the old one first.
+
+On the round 240x240 display (`--display 240x240`, without the menu area) both pass down to
+77 KB, and that firmware has a 128 KB heap.
 
 ## Differences to the device
 

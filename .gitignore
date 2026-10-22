@@ -4,6 +4,8 @@
 debug
 target
 build
+# internal notes
+issues.md
 
 # don't keep the Cargo.lock files
 Cargo.lock
@@ -25,5 +27,5 @@ Cargo.lock
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# Python byte code, e.g. from importing tools/dial-paths.py
+# Python byte code
 __pycache__/

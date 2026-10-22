@@ -1,7 +1,7 @@
 // Copyright © 2026 Stephan Kunz
 // SPDX-License-Identifier: GPL-3.0-only
-// Demo values of the instruments, shared by the desktop app and the web demo (web/), the same
-// movements as in the firmware demo loop
+// Demo values of the instruments, shared by the desktop app, the web demo (web/) and the
+// firmwares (firmware/common)
 
 use core::time::Duration;
 

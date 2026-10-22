@@ -1,8 +1,11 @@
 # Web demo
 
-The desktop app with all six instruments (`../ui/six-pack.slint`) as WebAssembly in the browser,
-animated with the same demo values (`../src/demo.rs`). It uses the web backend of Slint: winit
-draws into the canvas of `index.html`.
+The desktop apps as WebAssembly in the browser, animated with the same demo values
+(`../src/demo.rs`): the basic panel with all six instruments (`../ui/basic-panel.slint`) in
+`basic-panel.html`, the combined display (`../ui/combined.slint`) in `combined.html`, and
+`index.html` links to both. One module for both (the windows of `../ui/desktop.slint`): each page
+calls its function after loading it, `basic_panel()` or `combined()`. It uses the web backend of
+Slint: winit draws into the canvas of the page.
 
 The workflow `../.github/workflows/pages.yml` builds it for every push and pull request and
 deploys `main` to GitHub Pages.
@@ -33,7 +36,7 @@ The page has to be served over HTTP, the browser doesn't load WebAssembly module
 
 - `std::time::Instant` panics on `wasm32-unknown-unknown`, the demo clock comes from `web-time`.
 - The event loop of the web backend ends the start function with an exception on purpose ("Using
-  exceptions for control flow"), the instruments keep running in the browser. `index.html` treats
+  exceptions for control flow"), the instruments keep running in the browser. The pages treat
   that as a successful start.
 - Unlike the desktop app (software renderer, like the device), the browser uses the default
   renderer of the web backend (WebGL), so anti-aliasing can look slightly different.

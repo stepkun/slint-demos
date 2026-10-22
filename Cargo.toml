@@ -6,6 +6,9 @@ name = "slint-demos"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
+# two programs: `cargo run` starts the basic panel with all six instruments
+# (src/bin/basic-panel.rs), `cargo run --bin combined` the combined display (src/bin/combined.rs)
+default-run = "basic-panel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -15,12 +18,15 @@ slint = { version = "1.19.0", features = ["software-renderer-path"] }
 
 [build-dependencies]
 slint-build = "1.19.0"
+# the instruments, next to slint-demos
+aircraft-gauges = { path = "../aircraft-gauges" }
 
-# Slint and zeno from the local forks (next to slint-demos), the same as in the firmwares
+# Slint and zeno from the forks on GitHub (stepkun/slint branch patched, stepkun/zeno), the same
+# as in the firmwares
 [patch.crates-io]
-slint = { path = "../slint/api/rs/slint" }
-slint-build = { path = "../slint/api/rs/build" }
-zeno = { path = "../zeno" }
+slint = { git = "https://github.com/stepkun/slint", branch = "patched" }
+slint-build = { git = "https://github.com/stepkun/slint", branch = "patched" }
+zeno = { git = "https://github.com/stepkun/zeno", branch = "main" }
 
 [profile.release]
 codegen-units = 1

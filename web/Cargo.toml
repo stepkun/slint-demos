@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
 
-# The desktop app with all six instruments (ui/six-pack.slint) as WebAssembly for the browser,
+# The desktop app with all six instruments (ui/basic-panel.slint) as WebAssembly for the browser,
 # built with wasm-pack, see README.md.
 [lib]
 crate-type = ["cdylib"]
@@ -21,16 +21,18 @@ web-time = "1"
 
 [build-dependencies]
 slint-build = "1.19.0"
+# the instruments, next to slint-demos
+aircraft-gauges = { path = "../../aircraft-gauges" }
 
 # own workspace, so the crate is not taken as part of the desktop app in the repository root
 [workspace]
 
-# Slint and zeno from the local forks (next to slint-demos), the same as in the desktop app
-# and the firmwares
+# Slint and zeno from the forks on GitHub (stepkun/slint branch patched, stepkun/zeno), the same
+# as in the desktop app and the firmwares
 [patch.crates-io]
-slint = { path = "../../slint/api/rs/slint" }
-slint-build = { path = "../../slint/api/rs/build" }
-zeno = { path = "../../zeno" }
+slint = { git = "https://github.com/stepkun/slint", branch = "patched" }
+slint-build = { git = "https://github.com/stepkun/slint", branch = "patched" }
+zeno = { git = "https://github.com/stepkun/zeno", branch = "main" }
 
 [profile.release]
 # smaller download

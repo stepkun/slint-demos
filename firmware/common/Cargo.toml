@@ -1,0 +1,23 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+# The code all firmwares share, a path dependency of each of them. It is built as part of a
+# firmware, with the target, Slint fork and Cargo.lock of that firmware.
+
+[package]
+name = "firmware-common"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+
+[dependencies]
+cortex-m = { version = "0.7", optional = true }
+embassy-time = { version = "0.5", optional = true }
+embedded-alloc = "0.7"
+embedded-hal = "1"
+embedded-hal-async = { version = "1", optional = true }
+# the firmware adds the other features (unsafe-single-threaded, libm, software-renderer-path)
+slint = { version = "1.19.0", default-features = false, features = ["compat-1-2", "renderer-software"] }
+
+[features]
+# the embassy firmwares of the Picos: frames sent by DMA, the crash signal by the backlight
+rp = ["dep:cortex-m", "dep:embassy-time", "dep:embedded-hal-async"]

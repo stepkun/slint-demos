@@ -1,0 +1,15 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[build]
+target = "thumbv8m.main-none-eabihf"    # Cortex-M33 with FPU of the RP2350
+
+[target.thumbv8m.main-none-eabihf]
+# hold BOOT while plugging in the board (or hold BOOT and press RESET), then
+# `cargo run --release` loads the firmware with
+# picotool (elf2uf2-rs doesn't know the RP2350)
+runner = "picotool load -u -v -x -t elf"
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+]

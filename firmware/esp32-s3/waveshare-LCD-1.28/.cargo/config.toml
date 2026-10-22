@@ -1,0 +1,20 @@
+# Copyright © 2026 Stephan Kunz
+# SPDX-License-Identifier: GPL-3.0-only
+
+[build]
+target = "xtensa-esp32s3-none-elf"    # Xtensa LX7 cores of the ESP32-S3
+
+[target.xtensa-esp32s3-none-elf]
+# with the board connected by USB, `cargo run --release` flashes it and shows its serial output
+runner = "espflash flash --monitor --chip esp32s3"
+rustflags = [
+    "-C", "link-arg=-nostartfiles",
+    "-C", "link-arg=-Tlinkall.x",
+]
+
+[env]
+ESP_LOG = "info"
+
+[unstable]
+# there is no prebuilt core/alloc for the Xtensa targets
+build-std = ["core", "alloc"]
